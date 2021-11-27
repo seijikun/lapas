@@ -259,7 +259,7 @@ cd ./linux-5.14.21
 ```
 If you're really into it, you can use your own knowledge or [this](https://wiki.gentoo.org/wiki/Handbook:AMD64/Installation/Kernel#Default:_Manual_configuration) guide from the Gentoo Wiki to build your own kernel.
 
-But in case you've never built a kernel, and don't want to dig your nose that deep in, you can find the kernel configuration file we are using [here](https://hastebin.com/zoyahowoyu.shell). To use it, change into the folder you just extracted from the archive and then run the following:
+But in case you've never built a kernel, and don't want to dig your nose that deep in, you can find the kernel configuration file we are using [here](https://raw.githubusercontent.com/seijikun/lapas/main/files/.config). To use it, change into the folder you just extracted from the archive and then run the following:
 ```bash
 $> wget https://hastebin.com/raw/zoyahowoyu --output-document=.conf
 ```
