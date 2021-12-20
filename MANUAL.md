@@ -110,8 +110,8 @@ group {
         if option architecture-type = 00:06 or option architecture-type = 00:07 {
                 filename "grub2/x86_64-efi/core.efi";
         } else {
-#               filename "grub2/i386-pc/core.0";
-                filename "bios/pxelinux.0";
+                filename "grub2/i386-pc/core.0";
+#               filename "bios/pxelinux.0";
         }
 
         next-server 192.168.42.1;
@@ -242,7 +242,7 @@ The base system of our guest is now set up. Since we have some weird requirement
 **Note:**
 - The kernel needs support for booting from NFS-shares
 - The kernel needs support for overlayfs
-- Since we have a network drive as root filesystem, we need the kernel to hav NIC drivers early on in the boot process, so the drivers for all network cards you need support for on the guest machines have to be compiled into the kernel, instead of modules loaded at runtime. This is what disqualifies most of the normal distribution kernels.
+- Since we have a network drive as root filesystem, we need the kernel to have NIC drivers early on in the boot process, so the drivers for all network cards you need support for on the guest machines have to be compiled into the kernel, instead of modules loaded at runtime. This is what disqualifies most of the normal distribution kernels.
 - ... probably more
 :::
 For the reasons mentioned above, we will compile our own kernel for the guest. To start building your own kernel (we are still chrooted in our guest!), do the following:
@@ -261,7 +261,7 @@ If you're really into it, you can use your own knowledge or [this](https://wiki.
 
 But in case you've never built a kernel, and don't want to dig your nose that deep in, you can find the kernel configuration file we are using [here](https://raw.githubusercontent.com/seijikun/lapas/main/files/.config). To use it, change into the folder you just extracted from the archive and then run the following:
 ```bash
-$> wget https://hastebin.com/raw/zoyahowoyu --output-document=.conf
+$> wget https://raw.githubusercontent.com/seijikun/lapas/main/files/.config
 ```
 Now you can go over to compiling the kernel:
 ```bash=
