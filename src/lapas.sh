@@ -60,7 +60,7 @@ logMakeSure "WARNING: This \"distribution\" is not hardened, and not meant for e
 ################################################
 logSection "Preparing environment";
 logInfo "Installing dependencies...";
-runSilentUnfallible apt-get install -y dialog openssh-server ntp tftpd-hpa pxelinux samba libnfs-utils isc-dhcp-server grub-pc-bin grub-efi-amd64-bin grub-efi-ia32-bin binutils nfs-kernel-server dnsmasq;
+runSilentUnfallible apt-get install -y dialog ethtool openssh-server ntp tftpd-hpa pxelinux samba libnfs-utils isc-dhcp-server grub-pc-bin grub-efi-amd64-bin grub-efi-ia32-bin binutils nfs-kernel-server dnsmasq;
 
 ################################################
 logSection "Configuration";
@@ -73,9 +73,11 @@ LAPAS_TIMEZONE=$(getSystemTimezone);
 LAPAS_KEYMAP=$(getSystemKeymap);
 LAPAS_PASSWORD_SALT="lApAsPaSsWoRdSaLt_";
 
-uiSelectNetworkDevices "single" "Select the upstream network card (house network / with internet connection)\nThis will be configured as dhcp client. You can change this later on if required" LAPAS_NIC_UPSTREAM || exit 1
-uiSelectNetworkDevices "multi" "Select the internal lapas network card(s). If you select multiple, a bond will be created" LAPAS_NIC_INTERNAL || exit 1
-uiTextInput "Input LAPAS' internal subnet (form: xxx.xxx.xxx.1/yy).\nWARNING: Old games might not handle 10.0.0.0/8 networks very well.\nWARNING:This MUST NOT collidate with your upstream network addresses." "192.168.42.1/24" "${LAPAS_SUBNET_REGEX}" LAPAS_NET_ADDRESS || exit 1
+uiSelectNetworkDevices "single" "Select the upstream network card (house network / with internet connection)\nThis will be configured as dhcp client.
+Hint: Use 'ethtool --identify <enp...>' in a second terminal to identify the NICs listed here." LAPAS_NIC_UPSTREAM || exit 1;
+uiSelectNetworkDevices "multi" "Select the internal lapas network card(s). If you select multiple NICs, a bond will be created, combining all of them to one large virtual network card.
+Hint: Use 'ethtool --identify <enp...>' in a second terminal to identify the NICs listed here." LAPAS_NIC_INTERNAL || exit 1;
+uiTextInput "Input LAPAS' internal subnet (form: xxx.xxx.xxx.1/yy).\nWARNING: Old games might not handle 10.0.0.0/8 networks very well.\nWARNING:This MUST NOT collidate with your upstream network addresses." "192.168.42.1/24" "${LAPAS_SUBNET_REGEX}" LAPAS_NET_ADDRESS || exit 1;
 uiTextInput "Input the password you want to use for all administration accounts." "lapas" ".+" LAPAS_PASSWORD || exit 1;
 LAPAS_NET_IP=${LAPAS_NET_ADDRESS%/*};
 LAPAS_NET_SUBNET_BASEADDRESS="${LAPAS_NET_ADDRESS%.1/*}.0";

@@ -31,11 +31,21 @@ function uiSelectNetworkDevices() {
 	if [ "$1" == "multi" ]; then
 		listType="checklist";
 	fi
-	networkDeviceDialogOptions=$(ip -brief link show | grep --invert-match "LOOPBACK" | awk '{ print $1,$3,"off" }');
-	networkDeviceCnt=$(echo "$networkDeviceDialogOptions" | wc -l);
 	while true; do
-		uiDialogWithResult "tmpResult" --erase-on-exit --$listType "$2" 0 0 $networkDeviceCnt $networkDeviceDialogOptions;
-		if [ "$?" != "0" ]; then exit 1; fi
+		networkDeviceDialogOptions=();
+		networkDeviceCnt=0;
+		while read -r nicLine; do
+			nicName=$(echo "$nicLine" | awk '{ print $1 }');
+			nicLinkState=$(echo "$nicLine" | awk '{ print $2 }');
+			nicMacAddress=$(echo "$nicLine" | awk '{ print $3 }');
+			networkDeviceDialogOptions+=("${nicName}" "${nicMacAddress} [${nicLinkState}]" "off");
+			networkDeviceCnt=$(($networkDeviceCnt + 1));
+		done <<< $(ip -brief link show | grep --invert-match "LOOPBACK");
+		
+		uiDialogWithResult "tmpResult" --erase-on-exit --extra-button --extra-label "Refresh" --$listType "$2" 0 0 $networkDeviceCnt "${networkDeviceDialogOptions[@]}";
+		dialogResult="$?";
+		if [ "$dialogResult" == 1 ]; then exit 1; fi # Cancel
+		if [ "$dialogResult" == 3 ]; then continue; fi # Refresh
 		if [ "$tmpResult" == "" ]; then
 			uiMsgbox "Input Error" "You have to select something";
 		else
