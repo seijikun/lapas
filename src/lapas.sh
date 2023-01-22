@@ -199,7 +199,6 @@ streamBinaryPayload "${SELF_PATH}" "__PAYLOAD_LAPAS_RESOURCES__" | base64 -d | g
 runSilentUnfallible configureFileInplace "${LAPAS_SCRIPTS_DIR}/config" "${LAPAS_CONFIGURATION_OPTIONS[@]}";
 runSilentUnfallible configureFileInplace "${LAPAS_GUESTROOT_DIR}/etc/initcpio/hooks/remountoverlay" "${LAPAS_CONFIGURATION_OPTIONS[@]}";
 runSilentUnfallible configureFileInplace "${LAPAS_GUESTROOT_DIR}/etc/systemd/system/lapas-firstboot-setup.service" "${LAPAS_CONFIGURATION_OPTIONS[@]}";
-runSilentUnfallible configureFileInplace "${LAPAS_TFTP_DIR}/grub2/grub.cfg" "${LAPAS_CONFIGURATION_OPTIONS[@]}";
 runSilentUnfallible chown -R 1000:1000 "${LAPAS_GUESTROOT_DIR}/mnt/homeBase";
 
 pushd "/";
@@ -245,6 +244,7 @@ logSection "Compiling and Installing your kernel...";
 ################################################################################################
 logSection "Setting up Guest OS Boot Process..."
 ################################################################################################
+runSilentUnfallible grub-mknetdir --net-directory="${LAPAS_TFTP_DIR}" --subdir=grub2;
 cat <<EOF >> "${LAPAS_GUESTROOT_DIR}/etc/fstab"
 ${LAPAS_NET_IP}:${LAPAS_USERHOMES_DIR}      /mnt/homes      nfs     defaults,nofail 0 0
 EOF
@@ -327,11 +327,11 @@ runSilentUnfallible systemctl enable lapas-api-server;
 ################################################################################################
 logSection "Starting LAPAS Services...";
 ################################################################################################
+runSilentUnfallible systemctl stop networking
+sleep 2;
+runSilentUnfallible systemctl restart systemd-networkd
 uiAwaitLinkStateUp "${LAPAS_NIC_UPSTREAM}" "${LAPAS_NIC_INTERNAL[@]}" "lapas" || exit 1;
 
-runSilentUnfallible systemctl stop networking
-runSilentUnfallible systemctl restart systemd-networkd
-sleep 2; # wait for this to finish
 runSilentUnfallible systemctl restart rpc-statd;
 runSilentUnfallible systemctl restart ntp;
 runSilentUnfallible systemctl restart dnsmasq;
