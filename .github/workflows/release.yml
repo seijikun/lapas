@@ -1,9 +1,8 @@
-name: Build LAPAS Installer Script
-
+name: Release
 on:
   push:
-    branches:
-      - "master"
+    tags:
+      - 'v*'
 
 jobs:
   build:
@@ -22,8 +21,8 @@ jobs:
       - uses: "marvinpinto/action-automatic-releases@latest"
         with:
           repo_token: "${{ github.token }}"
-          automatic_release_tag: "nightly"
-          prerelease: true
-          title: "LAPAS Installer [nightly]"
+          prerelease: false
+          title: "LAPAS Installer [${{ github.ref_name }}]"
+          automatic_release_tag: "${{ github.ref_name }}"
           files: |
             lapas_installer.sh
