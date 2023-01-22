@@ -41,9 +41,9 @@ if [ "$PAM_USER" != "lapas" ] && [ "$PAM_TYPE" == "open_session" ]; then
 
 		# Run user upper-dir cleanup
 		. /lapas/parseKeepPatterns.sh || exit 1;
-		assertSuccessfull pushd "$USER_IMAGE_MOUNTDIR/upper";
-			assertSuccessfull find . \( "${FIND_DELETE_PATTERN_ARGS[@]}" \) -delete 2>&1 | grep -v "Directory not empty";
-		assertSuccessfull popd;
+		pushd "$USER_IMAGE_MOUNTDIR/upper" || exit 1;
+			find . \( "${FIND_DELETE_PATTERN_ARGS[@]}" \) -mount -delete 2>&1 | grep -v "Directory not empty";
+		popd || exit 1;
 	fi
 	if [ $(mount | grep "$USER_HOME" | wc -l) == 0 ]; then
 		assertSuccessfull mkdir -p "$USER_HOME";

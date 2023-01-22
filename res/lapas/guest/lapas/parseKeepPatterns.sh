@@ -4,7 +4,7 @@
 export FIND_KEEP_PATTERN_ARGS=(-not -wholename "./.keep");
 
 # Patterns used to select the files/folders that should be cleared from the user overlay
-export FIND_DELETE_PATTERN_ARGS=(-wholename ""); # makes it easier with the "-or" appending
+export FIND_DELETE_PATTERN_ARGS=(-wholename "./.keep"); # makes it easier with the "-or" appending
 
 while IFS="\n" read -r patternLine; do
 	patternType=$(echo "$patternLine" | awk '{print $1}');
