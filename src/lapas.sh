@@ -24,7 +24,7 @@ function printHeader() {
 		░ ░    ░   ▒   ░░         ░   ▒   ░  ░  ░  
 		    ░  ░     ░  ░               ░  ░      ░
 		
-		Installer v0.1
+		Installer v0.2
 	";
 }
 
