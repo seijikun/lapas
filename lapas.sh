@@ -271,9 +271,12 @@ fi
 ################################################
 logSection "Setting up folder structure...";
 runSilentUnfallible mkdir -p "${LAPAS_TFTP_DIR}";
-runSilentUnfallible mkdir -p "${LAPAS_GUESTROOT_DIR}";
 runSilentUnfallible mkdir -p "${LAPAS_USERHOMES_DIR}";
 runSilentUnfallible mkdir -p "${LAPAS_SCRIPTS_DIR}";
+
+runSilentUnfallible mkdir -p "${LAPAS_GUESTROOT_DIR}"; # bindmound required for proper chroot
+runSilentUnfallible mount -o bind "${LAPAS_GUESTROOT_DIR}" "${LAPAS_GUESTROOT_DIR}";
+echo "${LAPAS_GUESTROOT_DIR} ${LAPAS_GUESTROOT_DIR} none defaults,bind 0 0" >> "/etc/fstab";
 
 ################################################################################
 cat <<EOF > "${LAPAS_SCRIPTS_DIR}/config"
@@ -436,9 +439,6 @@ pushd "${LAPAS_GUESTROOT_DIR}";
 	runSilentUnfallible tar xzf archlinux-bootstrap-x86_64.tar.gz --strip-components=1 --numeric-owner
 	rm archlinux-bootstrap-x86_64.tar.gz;
 popd;
-runSilentUnfallible mount -o bind "${LAPAS_GUESTROOT_DIR}" "${LAPAS_GUESTROOT_DIR}";
-
-echo "${LAPAS_GUESTROOT_DIR} ${LAPAS_GUESTROOT_DIR} none defaults,bind 0 0" >> "/etc/fstab";
 
 # setup guest by initializing software repository (enable multilib for wine)
 echo 'Server = http://ftp.fau.de/archlinux/$repo/os/$arch' >> "${LAPAS_GUESTROOT_DIR}/etc/pacman.d/mirrorlist";
@@ -450,7 +450,7 @@ runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" pacman -Syu --noconfirm;
 "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" pacman --noconfirm -S nano base-devel bc wget \
 	mkinitcpio mkinitcpio-nfs-utils linux-firmware nfs-utils \
-	xfce4 xfce4-goodies gvfs xorg-server lightdm lightdm-gtk-greeter pulseaudio pulseaudio-alsa pavucontrol aoss \
+	xfce4 xfce4-goodies gvfs xorg-server lightdm lightdm-gtk-greeter pulseaudio pulseaudio-alsa pavucontrol alsa-oss \
 	firefox geany file-roller openbsd-netcat \
 	wine-staging winetricks zenity \
 	lib32-libxcomposite lib32-libpulse || exit 1;
@@ -805,16 +805,33 @@ while true; do
 		
 		zenity --error --title="Authentication Error" --text="Authentication failed: ${authResult}";
 		exec {client[1]}>&-; # close stream
-		wait "${client_PID}";
+		wait $client_PID;
 	done
 
 	handleNewUser <&${client[0]} >&${client[1]};
 	if [ "$?" == 0 ]; then
 		exec {client[1]}>&-; # close stream
+		wait $client_PID;
 		break;
 	fi
 done
 EOF
+runSilentUnfallible chmod u+x "${LAPAS_GUESTROOT_DIR}/mnt/homeBase/.lapas/addUser.sh";
+################################################################################
+runSilentUnfallible mkdir -p "${LAPAS_GUESTROOT_DIR}/mnt/homeBase/.local/share/applications";
+cat <<"EOF" > "${LAPAS_GUESTROOT_DIR}/mnt/homeBase/.local/share/applications/LAPASaddUser.desktop"
+[Desktop Entry]
+Comment=Add a new LAPAS user
+Exec=/mnt/homeBase/.lapas/addUser.sh
+Icon=system-users
+Name=LAPAS Add User
+NoDisplay=false
+StartupNotify=true
+Terminal=0
+TerminalOptions=
+Type=Application;System
+EOF
+################################################################################
 runSilentUnfallible chown -R 1000:1000 "${LAPAS_GUESTROOT_DIR}/mnt/homeBase";
 ################################################################################
 cat <<"EOF" > "${LAPAS_SCRIPTS_DIR}/addUser.sh"
@@ -841,10 +858,27 @@ else
 fi
 echo "User created successfully."
 EOF
+chmod a+x "${LAPAS_SCRIPTS_DIR}/addUser.sh";
+################################################################################
+cat <<"EOF" > "${LAPAS_SCRIPTS_DIR}/guestChroot.sh"
+#!/bin/bash
+if [ "$USER" != "root" ]; then
+	echo "You have to be logged in as root to use this. Hint: use 'su - root' instead of su root"; exit 1;
+fi
+
+# import LAPAS config
+. $(dirname "$0")/config;
+
+cd "${LAPAS_GUESTROOT_DIR}" || exit 1;
+echo "Entering chroot now..";
+./bin/arch-chroot ./;
+EOF
+chmod a+x "${LAPAS_SCRIPTS_DIR}/guestChroot.sh";
 ################################################################################
 cat <<"EOF" > "${LAPAS_SCRIPTS_DIR}/apiServer.sh"
 #!/bin/bash
 if [ ! "$BASH_VERSION" ]; then exec /bin/bash "$0" "$@"; fi
+export USER="root";
 
 # import LAPAS config
 . $(dirname "$0")/config;
@@ -888,8 +922,8 @@ while true; do
         handleClient <&${serv[0]} >&${serv[1]};
         # close our outgoing stream
         exec {serv[1]}>&-;
+        wait $serv_PID;
         echo "Disconnected.";
-        sleep 1000;
         echo "###########################";
 done
 EOF
@@ -914,7 +948,7 @@ runSilentUnfallible systemctl start lapas-api-server;
 
 
 LAPAS_WELCOME="
-The setup of your LanPArtyServer is complete. All services are up and running, no reboot is required.
+The setup of your \ZbLanPArtyServer\ZB is complete. All services are up and running, no reboot is required.
 
 
 \Zb===== The Guest =====\ZB
@@ -928,6 +962,9 @@ If a player changes any of the files that are provided by the underlying homeBas
 From then on, changes you make to these files as user lapas in homeBase will not reach the player's homefolder anymore. (For more information, see Linux overlayfs)
 To keep this clean, LAPAS employs a '.keep' file within homeBase that contains a set of patterns and rules specifying which files are supplied \
 by homeBase, and which files a user is allowed to overwrite. (see the mentioned .keep file for more information on this)
+
+For everything other than wine (which is quite picky about file ownership and its own location), it's best to have a systemwide folder (like /games) outside homeBase, to store \
+the native games that can't be installed through the repository.
 
 
 \Zb===== Next Step =====\ZB
@@ -976,3 +1013,5 @@ uiMsgbox "Installation complete" "${LAPAS_WELCOME}";
 # https://github.com/util-linux/util-linux/pull/1661
 # When this is supported with mount, we don't need the ugly "every user has the same uid" hack anymore.
 # apparently, this also supports overlayfs, so we got this going for us - which is nice!
+
+#TODO: scripts/guestChroot that automatically creates a multi-version kernel boot menu.
