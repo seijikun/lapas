@@ -1,4 +1,6 @@
 #!/bin/bash
+if [ ! "$BASH_VERSION" ] ; then exec /bin/bash "$0" "$@"; fi
+
 
 # CONSTANTS
 ##############################
@@ -196,16 +198,6 @@ function uiTextInput() {
 ########################################################################################################################
 ########################################################################################################################
 
-if [ $(whoami) == "seiji" ]; then
-
-exit 0;
-fi
-
-
-########################################################################################################################
-########################################################################################################################
-########################################################################################################################
-
 printHeader;
 
 if [ "$USER" != "root" ]; then
@@ -219,7 +211,7 @@ logMakeSure "WARNING: This \"distribution\" is not hardened, and not meant for e
 ################################################
 logSection "Preparing environment";
 logInfo "Installing dependencies...";
-runSilentUnfallible apt-get install -y dialog openssh-server tftpd-hpa pxelinux samba libnfs-utils isc-dhcp-server grub-pc-bin grub-efi-amd64-bin grub-efi-ia32-bin binutils nfs-kernel-server dnsmasq;
+runSilentUnfallible apt-get install -y dialog openssh-server ntp tftpd-hpa pxelinux samba libnfs-utils isc-dhcp-server grub-pc-bin grub-efi-amd64-bin grub-efi-ia32-bin binutils nfs-kernel-server dnsmasq;
 
 ################################################
 logSection "Configuration";
@@ -230,6 +222,7 @@ LAPAS_GUESTROOT_DIR="${LAPAS_BASE_DIR}/guest";
 LAPAS_USERHOMES_DIR="${LAPAS_BASE_DIR}/homes";
 LAPAS_TIMEZONE=$(getSystemTimezone);
 LAPAS_KEYMAP=$(getSystemKeymap);
+LAPAS_PASSWORD_SALT="lApAsPaSsWoRdSaLt_";
 
 uiSelectNetworkDevices "single" "Select the upstream network card (house network / with internet connection)\nThis will be configured as dhcp client. You can change this later on if required" LAPAS_NIC_UPSTREAM || exit 1
 uiSelectNetworkDevices "multi" "Select the internal lapas network card(s). If you select multiple, a bond will be created" LAPAS_NIC_INTERNAL || exit 1
@@ -284,10 +277,13 @@ runSilentUnfallible mkdir -p "${LAPAS_SCRIPTS_DIR}";
 
 ################################################################################
 cat <<EOF > "${LAPAS_SCRIPTS_DIR}/config"
-LAPAS_TFTP_DIR=${LAPAS_TFTP_DIR};
-LAPAS_GUESTROOT_DIR=${LAPAS_GUESTROOT_DIR};
-LAPAS_USERHOMES_DIR=${LAPAS_USERHOMES_DIR};
-LAPAS_SCRIPTS_DIR=${LAPAS_SCRIPTS_DIR};
+LAPAS_NET_IP="${LAPAS_NET_IP}";
+LAPAS_TFTP_DIR="${LAPAS_TFTP_DIR}";
+LAPAS_GUESTROOT_DIR="${LAPAS_GUESTROOT_DIR}";
+LAPAS_USERHOMES_DIR="${LAPAS_USERHOMES_DIR}";
+LAPAS_SCRIPTS_DIR="${LAPAS_SCRIPTS_DIR}";
+LAPAS_PASSWORD_SALT="${LAPAS_PASSWORD_SALT}";
+LAPAS_PASSWORD_HASH="$(echo "${LAPAS_PASSWORD_SALT}${LAPAS_PASSWORD}" | sha512sum | cut -d" " -f1)";
 EOF
 ################################################################################
 
@@ -343,6 +339,7 @@ allow bootp;
 option architecture-type code 93 = unsigned integer 16;
 option domain-name-servers ${LAPAS_NET_IP};
 option routers ${LAPAS_NET_IP};
+option ntp-servers ${LAPAS_NET_IP};
 
 ddns-update-style none;
 default-lease-time 86400;
@@ -393,8 +390,9 @@ TFTP_DIRECTORY="${LAPAS_TFTP_DIR}"
 TFTP_ADDRESS="${LAPAS_NET_IP}:69"
 TFTP_OPTIONS="--secure"
 EOF
-################################################################################
+runSilentUnfallible systemctl enable tftpd-hpa;
 runSilentUnfallible systemctl restart tftpd-hpa;
+################################################################################
 
 
 logSubsection "Setting up DNS...";
@@ -405,24 +403,32 @@ interface=lapas
 # disable DHCP / TFTP (dnsmasq is a little too weak for our dhcp needs)
 no-dhcp-interface=
 EOF
-################################################################################
-
 runSilentUnfallible systemctl enable dnsmasq;
 runSilentUnfallible systemctl restart dnsmasq;
+################################################################################
 
 
 logSubsection "Setting up NFS...";
-echo "\
+################################################################################
+cat <<EOF > "/etc/exports"
 ${LAPAS_GUESTROOT_DIR} *(rw,no_root_squash,async,no_subtree_check)
 ${LAPAS_USERHOMES_DIR} *(rw,no_root_squash,async,no_subtree_check)
-" > /etc/exports;
+EOF
 runSilentUnfallible exportfs -ra;
 runSilentUnfallible systemctl enable rpc-statd;
 runSilentUnfallible systemctl restart rpc-statd;
+################################################################################
 
+
+logSubsection "Setting up NTP...";
+runSilentUnfallible systemctl enable ntp;
+runSilentUnfallible systemctl restart ntp;
+
+
+
+logSection "Setting up Guest OS (Archlinux)...";
 ################################################
 # see: https://wiki.archlinux.org/title/Install_Arch_Linux_from_existing_Linux#From_a_host_running_another_Linux_distribution
-logSection "Setting up Guest OS (Archlinux)...";
 pushd "${LAPAS_GUESTROOT_DIR}";
 	logSubsection "Downloading Archlinux Bootstrap..."
 	wget https://ftp.fau.de/archlinux/iso/latest/archlinux-bootstrap-x86_64.tar.gz || exit 1;
@@ -431,6 +437,8 @@ pushd "${LAPAS_GUESTROOT_DIR}";
 	rm archlinux-bootstrap-x86_64.tar.gz;
 popd;
 runSilentUnfallible mount -o bind "${LAPAS_GUESTROOT_DIR}" "${LAPAS_GUESTROOT_DIR}";
+
+echo "${LAPAS_GUESTROOT_DIR} ${LAPAS_GUESTROOT_DIR} none defaults,bind 0 0" >> "/etc/fstab";
 
 # setup guest by initializing software repository (enable multilib for wine)
 echo 'Server = http://ftp.fau.de/archlinux/$repo/os/$arch' >> "${LAPAS_GUESTROOT_DIR}/etc/pacman.d/mirrorlist";
@@ -442,8 +450,10 @@ runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" pacman -Syu --noconfirm;
 "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" pacman --noconfirm -S nano base-devel bc wget \
 	mkinitcpio mkinitcpio-nfs-utils linux-firmware nfs-utils \
-	xfce4 xfce4-goodies gvfs xorg-server lightdm lightdm-gtk-greeter firefox geany \
-	wine-staging winetricks zenity || exit 1;
+	xfce4 xfce4-goodies gvfs xorg-server lightdm lightdm-gtk-greeter pulseaudio pulseaudio-alsa pavucontrol aoss \
+	firefox geany file-roller openbsd-netcat \
+	wine-staging winetricks zenity \
+	lib32-libxcomposite lib32-libpulse || exit 1;
 
 # configure locale and time settings
 # TODO: Ugh... debian11 does not yet have systemd-firstboot in its distro (about to change in the future, bug already fixed).
@@ -455,27 +465,27 @@ runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_
 	--root-password="${LAPAS_PASSWORD}" --setup-machine-id --hostname="guest";
 ################################################################################
 # Set keymap with init service instead, because it then also creates the x11 keymap
-cat <<EOF > "${LAPAS_GUESTROOT_DIR}/etc/systemd/system/lapas-init-keymap.service"
+cat <<EOF > "${LAPAS_GUESTROOT_DIR}/etc/systemd/system/lapas-firstboot-setup.service"
 [Unit]
-ConditionPathExists=!/lapas/initflags/keymap
+ConditionPathExists=!/lapas/.firstbootSetup
 Before=multi-user.target display-manager.service
 
 [Service]
 Type=oneshot
 ExecStart=localectl set-keymap ${LAPAS_KEYMAP}
-ExecStartPost=/usr/bin/touch /lapas/initflags/keymap
+ExecStart=timedatectl set-ntp true
+ExecStartPost=/usr/bin/touch /lapas/.firstbootSetup
 RemainAfterExit=yes
 
 [Install]
 WantedBy=basic.target
 EOF
-runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable lapas-init-keymap;
+runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable lapas-firstboot-setup;
 ################################################################################
 
 	
 #Prepare global folder for lapas-stuff
 runSilentUnfallible mkdir "${LAPAS_GUESTROOT_DIR}/lapas";
-runSilentUnfallible mkdir "${LAPAS_GUESTROOT_DIR}/lapas/initflags";
 
 
 logSubsection "Downloading Guest Kernel..."
@@ -596,17 +606,59 @@ cat <<"EOF" > "${LAPAS_GUESTROOT_DIR}/lapas/initCleanHomeBase.sh"
 
 USER_BASE="/mnt/homeBase";
 
-. /lapas/parseKeepPatterns.sh;
+. /lapas/common.sh || exit 1;
+. /lapas/parseKeepPatterns.sh || exit 1;
 
-# Apply cleanup with keep patterns to overlay (transform homeBase -> cleanHomeBase)
-pushd "${USER_BASE}" > /dev/null || exit 1;
-	find . \( "${FIND_KEEP_PATTERN_ARGS[@]}" \) -delete 2>&1 | grep -v "Directory not empty";
-popd > /dev/null;
+echo "Applying cleanup with keep patterns to overlay (transform homeBase -> cleanHomeBase)";
+assertSuccessfull pushd "${USER_BASE}";
+        assertSuccessfull find . \( "${FIND_KEEP_PATTERN_ARGS[@]}" \) -delete;
+assertSuccessfull popd;
 EOF
 runSilentUnfallible chmod a+x "${LAPAS_GUESTROOT_DIR}/lapas/initCleanHomeBase.sh";
 ################################################################################
 cat <<EOF >> "${LAPAS_GUESTROOT_DIR}/etc/pam.d/system-login"
 session       required   pam_exec.so          stdout /lapas/mountHome.sh
+EOF
+################################################################################
+cat <<"EOF" > "${LAPAS_GUESTROOT_DIR}/lapas/parseKeepPatterns.sh"
+#!/bin/bash
+
+# Patterns used to deselect files/folders that should be kept in the homeBase
+export FIND_KEEP_PATTERN_ARGS=(-not -wholename "./.keep");
+
+# Patterns used to select the files/folders that should be cleared from the user overlay
+export FIND_DELETE_PATTERN_ARGS=(-wholename ""); # makes it easier with the "-or" appending
+
+while IFS="\n" read -r patternLine; do
+        patternType=$(echo "$patternLine" | awk '{print $1}');
+        pattern=$(echo "$patternLine" | awk '{ st=index($0," "); print substr($0,st+1)}');
+
+        # Append every pattern additionally with "/*" suffix, because we dont know whether its
+        # a folder or a file might want to recursively keep/mask a folder and all of its contents
+
+        # see .keep file for logic behind this
+        if [ "$patternType" == "b" ]; then # delete from user overlay/workdir
+                FIND_DELETE_PATTERN_ARGS+=(-or -wholename "'./$pattern'");
+                FIND_DELETE_PATTERN_ARGS+=(-or -wholename "'./$pattern/*'");
+        fi
+
+        FIND_KEEP_PATTERN_ARGS+=(-and -not -wholename "'./$pattern'");
+        FIND_KEEP_PATTERN_ARGS+=(-and -not -wholename "'./$pattern/*'");
+done <<< $(cat "/mnt/homeBase/.keep" | grep -E "^(b |bi )");
+EOF
+################################################################################
+#!/bin/bash
+cat <<"EOF" > "${LAPAS_GUESTROOT_DIR}/lapas/common.sh"
+function assertSuccessfull() {
+        echo "Running: $@";
+        $@;
+        resultCode="$?";
+        if [ "$resultCode" == 0 ]; then return 0; fi
+        echo "Command: > $@ < exited unexpectedly with error code: $resultCode";
+        echo "Aborting...";
+        exit $resultCode;
+}
+export -f assertSuccessfull;
 EOF
 ################################################################################
 cat <<"EOF" > "${LAPAS_GUESTROOT_DIR}/lapas/mountHome.sh"
@@ -619,52 +671,55 @@ USER_WORKDIR_BASE="/mnt/.overlays";
 USER_BASE="/mnt/homeBase";
 LAPAS_USER_GROUPNAME="lanparty";
 
+. /lapas/common.sh || exit 1;
+
 # Only run mountHome-script for lapas users
 [ $(id -ng $PAM_USER) != "$LAPAS_USER_GROUPNAME" ] && exit 0;
 
 if [[ ! -f "/.lapasUser" && "$PAM_USER" != "lapas" ]]; then
-	>&2 echo "In Admin mode, only lapas can login"
-	exit 1;
+        >&2 echo "In Admin mode, only lapas can login"
+        exit 1;
 fi
 
 echo "[LOGON] Login user: $PAM_USER, home: $USER_HOME";
 USER_HOME=$(getent passwd $PAM_USER | cut -d: -f6);
 
 if [ "$PAM_USER" != "lapas" ] && [ "$PAM_TYPE" == "open_session" ]; then
-	echo "[LOGON] Detected normal user";
-	USER_IMAGE="${USER_IMAGE_BASE}/${PAM_USER}";
-	USER_IMAGE_MOUNTDIR="${USER_WORKDIR_BASE}/${PAM_USER}";
+        echo "[LOGON] Detected normal user";
+        USER_IMAGE="${USER_IMAGE_BASE}/${PAM_USER}";
+        USER_IMAGE_MOUNTDIR="${USER_WORKDIR_BASE}/${PAM_USER}";
 
-	if [ ! -f "$USER_IMAGE" ]; then
-		# create image for user-specific dynamic data
-		truncate -s $USER_IMAGE_SIZE "$USER_IMAGE" || exit 1;
-		mkfs.ext4 -m0 "$USER_IMAGE" 1> /dev/null 2> /dev/null || exit 1;
-	fi
-	if [ $(mount | grep "$USER_IMAGE" | wc -l) == 0 ]; then
-		# create user-specific work folder
-		mkdir -p "$USER_IMAGE_MOUNTDIR" || exit 1;
-		# mount user-image
-		mount "$USER_IMAGE" "$USER_IMAGE_MOUNTDIR" || exit 1;
-		mkdir -p "$USER_IMAGE_MOUNTDIR/upper" || exit 1;
-		mkdir -p "$USER_IMAGE_MOUNTDIR/work" || exit 1;
-		chown -R $PAM_USER:lanparty "$USER_IMAGE_MOUNTDIR" || exit 1;
+        if [ ! -f "$USER_IMAGE" ]; then
+                # create image for user-specific dynamic data
+                assertSuccessfull truncate -s $USER_IMAGE_SIZE "$USER_IMAGE";
+                assertSuccessfull mkfs.ext4 -m0 "$USER_IMAGE" 1> /dev/null 2> /dev/null;
+        fi
+        if [ $(mount | grep "$USER_IMAGE" | wc -l) == 0 ]; then
+                # create user-specific work folder
+                assertSuccessfull mkdir -p "$USER_IMAGE_MOUNTDIR";
+                # mount user-image
+                assertSuccessfull mount "$USER_IMAGE" "$USER_IMAGE_MOUNTDIR";
+                assertSuccessfull mkdir -p "$USER_IMAGE_MOUNTDIR/upper";
+                assertSuccessfull mkdir -p "$USER_IMAGE_MOUNTDIR/work";
+                assertSuccessfull chown -R $PAM_USER:lanparty "$USER_IMAGE_MOUNTDIR";
 
-		# Run user upper-dir cleanup
-		. /lapas/parseKeepPatterns.sh;
-		pushd "$USER_IMAGE_MOUNTDIR/upper" > /dev/null || exit 1;
-			find . \( "${FIND_DELETE_PATTERN_ARGS[@]}" \) -delete 2>&1 | grep -v "Directory not empty";
-		popd > /dev/null;
-	fi
-	if [ $(mount | grep "$USER_HOME" | wc -l) == 0 ]; then
-		mkdir -p "$USER_HOME" || exit 1;
-		chown -R $PAM_USER:lanparty "$USER_HOME" || exit 1;
-		mount -t overlay overlay -o lowerdir="${USER_BASE}",upperdir="${USER_IMAGE_MOUNTDIR}/upper",workdir="${USER_IMAGE_MOUNTDIR}/work" "$USER_HOME" || exit 1;
-	fi
+                # Run user upper-dir cleanup
+                . /lapas/parseKeepPatterns.sh || exit 1;
+                assertSuccessfull pushd "$USER_IMAGE_MOUNTDIR/upper";
+                        assertSuccessfull find . \( "${FIND_DELETE_PATTERN_ARGS[@]}" \) -delete 2>&1 | grep -v "Directory not empty";
+                assertSuccessfull popd;
+        fi
+        if [ $(mount | grep "$USER_HOME" | wc -l) == 0 ]; then
+                assertSuccessfull mkdir -p "$USER_HOME";
+                assertSuccessfull chown -R $PAM_USER:lanparty "$USER_HOME";
+                assertSuccessfull mount -t overlay overlay -o lowerdir="${USER_BASE}",upperdir="${USER_IMAGE_MOUNTDIR}/upper",workdir="${USER_IMAGE_MOUNTDIR}/work" "$USER_HOME";
+        fi
 fi
 EOF
 runSilentUnfallible chmod a+x "${LAPAS_GUESTROOT_DIR}/lapas/mountHome.sh";
 ################################################################################
 echo "nameserver ${LAPAS_NET_IP}" >> "${LAPAS_GUESTROOT_DIR}/etc/resolv.conf";
+echo "NTP=${LAPAS_NET_IP}" >> "${LAPAS_GUESTROOT_DIR}/etc/systemd/timesyncd.conf";
 ################################################################################
 cat <<"EOF" > "${LAPAS_GUESTROOT_DIR}/mnt/homeBase/.keep"
 # This file contains a list of patterns for files/folders
@@ -683,95 +738,178 @@ bi .config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml
 bi .config/xfce4/xfconf/xfce-perchannel-xml/thunar.xml
 bi .config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml
 
+# Application starters
+b .local/share/applications
+
 # This folder contains lapas specific stuff and is >always< supplied from the homeBase.
 b .lapas
+
+# Example: Wine games [here, homeBase should not provide user-specific stuff like user.reg]
+#b .wineprefixes/*/drive_c
+#b .wineprefixes/*/dosdevices
+#b .wineprefixes/*/.update-timestamp
+#b .wineprefixes/*/system.reg
 EOF
 ################################################################################
 runSilentUnfallible mkdir "${LAPAS_GUESTROOT_DIR}/mnt/homeBase/.lapas";
+cat <<"EOF" > "${LAPAS_GUESTROOT_DIR}/mnt/homeBase/.lapas/addUser.sh"
+#!/bin/bash
+if [ ! "$BASH_VERSION" ]; then exec /bin/bash "$0" "$@"; fi
+
+LAPAS_API_IP=$(ip route | grep "default via" | cut -d' ' -f3);
+LAPAS_API_PORT=1337;
+
+function handleNewUser() {
+	while true; do
+		IFS='|' CREDS=( $(zenity --forms --title "Add User" --text "Add new user" \
+			--add-entry="Username" \
+			--add-password="Password" \
+			--add-password="Password Confirm"$) );
+		if [ $? != 0 ]; then exit 0; fi
+		if [ "${CREDS[0]}" == "" ]; then
+			zenity --error --title="Invalid Input" --text="Username must not be empty";
+			continue;
+		fi
+		if [ "${CREDS[1]}" == "" ]; then
+			zenity --error --title="Invalid Input" --text="Password must not be empty";
+			continue;
+		fi
+		if [ "${CREDS[1]}" != "${CREDS[2]}" ]; then
+			zenity --error --title="Invalid Input" --text="Password repetition does not match password!";
+			continue;
+		fi
+		break;
+	done
+	echo "addUser";
+	echo "${CREDS[0]}";
+	echo "${CREDS[1]}";
+	read addUserResult;
+	if [ "${addUserResult:0:2}" != "0 " ]; then
+		zenity --error --title="Server Error" --text="Adding user failed:\n${addUserResult}";
+		return 1;
+	fi
+}
+
+while true; do
+	# Connect to server API and authenticate
+	while true; do
+		lapasPassword=$(zenity --password --title="Lapas Auth");
+		if [ $? != 0 ]; then exit 0; fi
+
+		echo "Connecting to LAPAS API...";
+		coproc client { nc ${LAPAS_API_IP} ${LAPAS_API_PORT}; }
+		
+		echo "$lapasPassword" >&${client[1]};
+		read authResult <&${client[0]};
+		if [ "${authResult:0:2}" == "0 " ]; then break; fi
+		
+		zenity --error --title="Authentication Error" --text="Authentication failed: ${authResult}";
+		exec {client[1]}>&-; # close stream
+		wait "${client_PID}";
+	done
+
+	handleNewUser <&${client[0]} >&${client[1]};
+	if [ "$?" == 0 ]; then
+		exec {client[1]}>&-; # close stream
+		break;
+	fi
+done
+EOF
 runSilentUnfallible chown -R 1000:1000 "${LAPAS_GUESTROOT_DIR}/mnt/homeBase";
 ################################################################################
 cat <<"EOF" > "${LAPAS_SCRIPTS_DIR}/addUser.sh"
 #!/bin/bash
+if [ "$USER" != "root" ]; then
+	echo "You have to be logged in as root to use this. Hint: use 'su - root' instead of su root"; exit 1;
+fi
 
 # import LAPAS config
 . $(dirname "$0")/config;
 
 userName="$1";
+password="$2";
 if [ "$userName" == "" ];then
-	echo "Usage:  $0 <userName>"; exit 1;
+	echo "Usage: $0 <userName> [<password>]"; exit 1;
 fi
 
-cd "${LAPAS_GUESTROOT_DIR}";
-echo "Creating User: $userName";
-./bin/arch-chroot ./ useradd -d "/home/${userName}" -g lanparty -M -o -u 1000 "$userName";
-./bin/arch-chroot ./ passwd "$userName";
+cd "${LAPAS_GUESTROOT_DIR}" || exit 1;
+./bin/arch-chroot ./ useradd -d "/home/${userName}" -g lanparty -M -o -u 1000 "$userName" || exit $?;
+if [ "$password" != "" ]; then
+	yes "$password" | ./bin/arch-chroot ./ passwd "$userName" || exit $?;
+else
+	./bin/arch-chroot ./ passwd "$userName" || exit $?;
+fi
+echo "User created successfully."
 EOF
 ################################################################################
-cat <<"EOF" > "${LAPAS_SCRIPTS_DIR}/homeFolderCleanup.sh"
+cat <<"EOF" > "${LAPAS_SCRIPTS_DIR}/apiServer.sh"
 #!/bin/bash
+if [ ! "$BASH_VERSION" ]; then exec /bin/bash "$0" "$@"; fi
 
 # import LAPAS config
 . $(dirname "$0")/config;
 
-pushd () { command pushd "$@" > /dev/null; }
-popd () { command popd "$@" > /dev/null; }
+function handleClient() {
+        1>&2 echo "Awaiting authentication...";
+        read authPassword || return 1;
+        authPasswordHash=$(echo "${LAPAS_PASSWORD_SALT}${authPassword}" | sha512sum | cut -d" " -f1);
+        if [ "$LAPAS_PASSWORD_HASH" != "$authPasswordHash" ]; then
+                1>&2 echo "Authentication failed... closing connection";
+                echo "1 Auth failed (wrong password)"; return 1;
+        fi
+        echo "0 Auth Ok";
 
-if [ "$USER" != "root" ]; then
-	echo "This has to be called as root user! Hint: use  'su - root'";
-	exit 1;
-# fi
+        1>&2 echo "Authentication successful. Waiting for command...";
+        read COMMAND || return 1;
+        if [ "$COMMAND" == "addUser" ]; then
+                1>&2 echo "Handling: addUser";
+                read newUsername || return 1;
+                read newPassword || return 1;
+                if [ "$newPassword" == "" ]; then
+                        echo "3 Command Failed (empty password not allowed)"; return 1;
+                fi
+                ADDUSER_LOG=$($(dirname "$0")/addUser.sh "$newUsername" "$newPassword" 2>&1);
+                if [ $? != 0 ]; then
+                        1>&2 echo "Adding user ${newUsername} failed: ${ADDUSER_LOG}";
+                        echo "3 Command Failed (${ADDUSER_LOG})"; return 1;
+                fi
+                1>&2 echo "Added user: ${newUsername}";
+                echo "0 Success"; return 0;
+        else
+                1>&2 echo "Received unknown command: ${COMMAND}";
+                echo "2 Unknown command"; return 1;
+        fi
+};
+export -f handleClient;
 
-# Patterns used to deselect files/folders that should be kept in the homeBase
-FIND_KEEP_PATTERN_ARGS=(-not -wholename "./.keep");
-
-# Patterns used to select the files/folders that should be cleared from the user overlay
-FIND_DELETE_PATTERN_ARGS=(-wholename ""); # makes it easier with the "-or" appending
-
-while IFS="\n" read -r patternLine; do
-	patternType=$(echo "$patternLine" | awk '{print $1}');
-	pattern=$(echo "$patternLine" | awk '{ st=index($0," "); print substr($0,st+1)}');
-
-	# Append every pattern additionally with "/*" suffix, because we dont know whether its
-	# a folder or a file might want to recursively keep/mask a folder and all of its contents
-
-	# see .keep file for logic behind this
-	if [ "$patternType" == "b" ]; then # delete from user overlay/workdir
-		FIND_DELETE_PATTERN_ARGS+=(-or -wholename "./$pattern");
-		FIND_DELETE_PATTERN_ARGS+=(-or -wholename "./$pattern/*");
-	fi
-
-	FIND_KEEP_PATTERN_ARGS+=(-and -not -wholename "./$pattern");
-	FIND_KEEP_PATTERN_ARGS+=(-and -not -wholename "./$pattern/*");
-done <<< $(cat "${LAPAS_GUESTROOT_DIR}/mnt/homeBase/.keep" | grep -E "^(b |bi )");
-
-# Cleanup homeBase
-echo "Cleaning up homeBase...";
-pushd "${LAPAS_GUESTROOT_DIR}/mnt/homeBase" || exit 1;
-	find . \( "${FIND_KEEP_PATTERN_ARGS[@]}" \) -delete 2>&1 | grep -v "Directory not empty";
-popd;
-
-
-function cleanupUserHome() {
-	userHomeMountPoint="$1";
-	shift;
-	pushd "$userHomeMountPoint/upper" || return 1;
-		find . \( "$@" \) -delete 2>&1 | grep -v "Directory not empty";
-	popd;
-}
-# Cleanup user homes
-echo "Cleaning up user homes...";
-echo "############################################";
-pushd "${LAPAS_USERHOMES_DIR}" || exit 1;
-find . -type f -print0 | while read -r -d $'\0' userHome; do
-	echo "- User: ${userHome:2}";
-	userHomeMountPoint=$(mktemp -d);
-	mount "$userHome" "$userHomeMountPoint" || exit 1;
-	cleanupUserHome "$userHomeMountPoint" "${FIND_DELETE_PATTERN_ARGS[@]}";
-	umount "$userHomeMountPoint" || exit 1;
+while true; do
+        echo "Waiting for API client...";
+        coproc serv { nc -q0 -lp 1337; }
+        handleClient <&${serv[0]} >&${serv[1]};
+        # close our outgoing stream
+        exec {serv[1]}>&-;
+        echo "Disconnected.";
+        sleep 1000;
+        echo "###########################";
 done
-popd;
 EOF
-chmod a+x "${LAPAS_SCRIPTS_DIR}/homeFolderCleanup.sh";
+chmod a+x "${LAPAS_SCRIPTS_DIR}/apiServer.sh";
+################################################################################
+cat <<EOF > "/etc/systemd/system/lapas-api-server.service"
+[Unit]
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=${LAPAS_SCRIPTS_DIR}/apiServer.sh
+
+[Install]
+WantedBy=multi-user.target
+EOF
+################################################################################
+runSilentUnfallible systemctl daemon-reload;
+runSilentUnfallible systemctl enable lapas-api-server;
+runSilentUnfallible systemctl start lapas-api-server;
 
 
 
@@ -838,6 +976,3 @@ uiMsgbox "Installation complete" "${LAPAS_WELCOME}";
 # https://github.com/util-linux/util-linux/pull/1661
 # When this is supported with mount, we don't need the ugly "every user has the same uid" hack anymore.
 # apparently, this also supports overlayfs, so we got this going for us - which is nice!
-
-#TODO:
-# Desktop shortcut in lapas guest user to add new users (ssh to server with cert)
