@@ -1,5 +1,6 @@
 #!/bin/python3
 import os;
+import sys
 import subprocess;
 
 # CONFIG
@@ -41,6 +42,4 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)));
 
 mainScriptPath = os.path.abspath(MAIN_SCRIPT);
 lapasScriptContents = preprocess(mainScriptPath);
-resultFile = open("lapas.sh", "wb");
-resultFile.write(lapasScriptContents);
-resultFile.close();
+sys.stdout.buffer.write(lapasScriptContents);

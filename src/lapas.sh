@@ -192,7 +192,7 @@ echo "NTP=${LAPAS_NET_IP}" >> "${LAPAS_GUESTROOT_DIR}/etc/systemd/timesyncd.conf
 ################################################################################################
 logSection "Extracting LAPAS resources..."
 ################################################################################################
-streamBinaryPayload "${SELF_PATH}" "__PAYLOAD_LAPAS_RESOURCES__" | tar -xz --no-same-owner || exit 1;
+streamBinaryPayload "${SELF_PATH}" "__PAYLOAD_LAPAS_RESOURCES__" | base64 -d | gzip -d | tar -x --no-same-owner || exit 1;
 runSilentUnfallible configureFileInplace "${LAPAS_SCRIPTS_DIR}/config" "${LAPAS_CONFIGURATION_OPTIONS[@]}";
 runSilentUnfallible configureFileInplace "${LAPAS_GUESTROOT_DIR}/etc/initcpio/hooks/remountoverlay" "${LAPAS_CONFIGURATION_OPTIONS[@]}";
 runSilentUnfallible configureFileInplace "${LAPAS_GUESTROOT_DIR}/etc/systemd/system/lapas-firstboot-setup.service" "${LAPAS_CONFIGURATION_OPTIONS[@]}";
@@ -200,7 +200,7 @@ runSilentUnfallible configureFileInplace "${LAPAS_TFTP_DIR}/grub2/grub.cfg" "${L
 runSilentUnfallible chown -R 1000:1000 "${LAPAS_GUESTROOT_DIR}/mnt/homeBase";
 
 pushd "/";
-	streamBinaryPayload "${SELF_PATH}" "__PAYLOAD_SERVER_RESOURCES__" | tar -xz --no-same-owner || exit 1;
+	streamBinaryPayload "${SELF_PATH}" "__PAYLOAD_SERVER_RESOURCES__" | base64 -d | gzip -d | tar -x --no-same-owner || exit 1;
 popd;
 runSilentUnfallible configureFileInplace /etc/systemd/system/lapas-api-server.service "${LAPAS_CONFIGURATION_OPTIONS[@]}";
 runSilentUnfallible configureFileInplace /etc/default/tftpd-hpa "${LAPAS_CONFIGURATION_OPTIONS[@]}";
@@ -221,7 +221,7 @@ pushd "${LAPAS_GUESTROOT_DIR}/usr/src" || exit 1;
 	runSilentUnfallible tar xvf ./linux-${LAPAS_GUEST_KERNEL_VERSION}.tar.xz;
 	runSilentUnfallible rm ./linux-${LAPAS_GUEST_KERNEL_VERSION}.tar.xz;
 	runSilentUnfallible ln -sf linux-${LAPAS_GUEST_KERNEL_VERSION} ./linux;
-	streamBinaryPayload "$SELF_PATH" "__PAYLOAD_GUEST_KERNEL_CONF__" > "${LAPAS_GUESTROOT_DIR}/usr/src/linux/.config" || exit 1;
+	streamBinaryPayload "$SELF_PATH" "__PAYLOAD_GUEST_KERNEL_CONF__" | base64 -d | gzip -d > "${LAPAS_GUESTROOT_DIR}/usr/src/linux/.config" || exit 1;
 popd || exit 1;
 
 logSubsection "Configuring Guest Kernel..."
@@ -418,11 +418,11 @@ exit 0;
 
 
 __PAYLOAD_LAPAS_RESOURCES__
-#!binaryPayloadFrom cd ../res/lapas && tar -czf - ./
+#!binaryPayloadFrom cd ../res/lapas && tar -cf - ./ | gzip -9 | base64 -w 0
 __PAYLOAD_LAPAS_RESOURCES__
 __PAYLOAD_SERVER_RESOURCES__
-#!binaryPayloadFrom cd ../res/server && tar -czf - ./
+#!binaryPayloadFrom cd ../res/server && tar -cf - ./ | gzip -9 | base64 -w 0
 __PAYLOAD_SERVER_RESOURCES__
 __PAYLOAD_GUEST_KERNEL_CONF__
-#!binaryPayloadFrom cat ../res/kernel/.config
+#!binaryPayloadFrom cat ../res/kernel/.config | gzip -9 | base64 -w 0
 __PAYLOAD_GUEST_KERNEL_CONF__
