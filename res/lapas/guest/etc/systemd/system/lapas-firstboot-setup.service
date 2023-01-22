@@ -1,0 +1,13 @@
+[Unit]
+ConditionPathExists=!/lapas/.firstbootSetup
+Before=multi-user.target display-manager.service
+
+[Service]
+Type=oneshot
+ExecStart=localectl set-keymap @@LAPAS_KEYMAP@@
+ExecStart=timedatectl set-ntp true
+ExecStartPost=/usr/bin/touch /lapas/.firstbootSetup
+RemainAfterExit=yes
+
+[Install]
+WantedBy=basic.target

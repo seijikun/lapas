@@ -1,0 +1,31 @@
+#!/bin/bash
+
+#!import file/binaryPayload.sh
+#!import file/configure.sh
+
+LAPAS_NET_IP="1";
+${LAPAS_TFTP_DIR}="2";
+LAPAS_GUESTROOT_DIR="3";
+LAPAS_USERHOMES_DIR="4";
+LAPAS_SCRIPTS_DIR="5";
+LAPAS_PASSWORD_SALT="6";
+LAPAS_PASSWORD_HASH="7";
+
+OPTIONS=(
+	"LAPAS_NET_IP=${LAPAS_NET_IP}"
+	"LAPAS_TFTP_DIR=${LAPAS_TFTP_DIR}"
+	"LAPAS_GUESTROOT_DIR=${LAPAS_GUESTROOT_DIR}"
+	"LAPAS_USERHOMES_DIR=${LAPAS_USERHOMES_DIR}"
+	"LAPAS_SCRIPTS_DIR=${LAPAS_SCRIPTS_DIR}"
+	"LAPAS_PASSWORD_SALT=${LAPAS_PASSWORD_SALT}"
+	"LAPAS_PASSWORD_HASH=${LAPAS_PASSWORD_HASH}"
+);
+
+streamBinaryPayload "$0" "__PAYLOAD_SERVER_RESOURCES__" | configureStream "${OPTIONS[@]}"
+
+#streamBinaryPayload "$0" "__PAYLOAD_SERVER_RESOURCES__" > /tmp/test.tar.gz
+
+exit 0;
+__PAYLOAD_SERVER_RESOURCES__
+#!binaryPayloadFrom cat ../res/server/scripts/config
+__PAYLOAD_SERVER_RESOURCES__

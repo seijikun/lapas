@@ -1,0 +1,27 @@
+# This file contains a list of patterns for files/folders
+# Specify folders >without< trailing slashes!
+# Line prefix patterns:
+# 'b ' = homeBase >always< provides these file
+#                       Not deleted during homeBase cleanup (every other file is deleted!)
+#                       User-Changes to this file are rolled back (deleted from user overlay)
+# 'bi ' = homeBase >initially< provides these files
+#                       Not deleted during homeBase cleanup
+#                       User-Changes are kept (NOT deleted from user overlay)
+
+# Proper default XFCE setup
+# These are initially provided from the homeBase, but players can make permanent changes for themselves
+bi .config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml
+bi .config/xfce4/xfconf/xfce-perchannel-xml/thunar.xml
+bi .config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml
+
+# Application starters
+b .local/share/applications
+
+# This folder contains lapas specific stuff and is >always< supplied from the homeBase.
+b .lapas
+
+# Example: Wine games [here, homeBase should not provide user-specific stuff like user.reg]
+#b .wineprefixes/*/drive_c
+#b .wineprefixes/*/dosdevices
+#b .wineprefixes/*/.update-timestamp
+#b .wineprefixes/*/system.reg

@@ -1,0 +1,6 @@
+[NetDev]
+Name=lapas
+Kind=bond
+
+[Bond]
+Mode=balance-rr

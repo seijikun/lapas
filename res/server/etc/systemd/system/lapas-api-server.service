@@ -1,0 +1,9 @@
+[Unit]
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=@@LAPAS_SCRIPTS_DIR@@/apiServer.sh
+
+[Install]
+WantedBy=multi-user.target

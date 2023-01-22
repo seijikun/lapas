@@ -1,0 +1,6 @@
+[Match]
+Name=@@LAPAS_NIC_UPSTREAM@@
+
+[Network]
+DHCP=ipv4
+IPForward=true

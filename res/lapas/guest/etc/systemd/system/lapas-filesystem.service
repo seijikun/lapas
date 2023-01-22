@@ -1,0 +1,16 @@
+# When starting in user mode, this service runs the cleanup process as specified by the homeBase/.keep file.
+# All users (lapas, as well as players) thus will then have a cleaned homeBase as base for their homeFolder.
+[Unit]
+Description="Prepares the LAPAS guest filesystem"
+ConditionPathExists=/.lapasUser
+DefaultDependencies=no
+After=local-fs-pre.target
+Before=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/lapas/initCleanHomeBase.sh
+RemainAfterExit=yes
+
+[Install]
+RequiredBy=local-fs.target

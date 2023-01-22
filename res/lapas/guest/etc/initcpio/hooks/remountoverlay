@@ -1,0 +1,17 @@
+run_hook() {
+	ipconfig "ip=\${ip}"
+	rootfstype="overlay"
+	mount_handler="lapas_mount_handler"
+}
+
+lapas_mount_handler() {
+	mkdir /dev/nfs
+	mkdir /tmproot
+	mount -t tmpfs none /tmproot
+	mkdir /tmproot/upper
+	mkdir /tmproot/work
+	touch /tmproot/upper/.lapasUser
+
+	nfsmount @@LAPAS_NET_IP@@:@@LAPAS_GUESTROOT_DIR@@ /dev/nfs
+	mount -t overlay overlay -o lowerdir=/dev/nfs,upperdir=/tmproot/upper,workdir=/tmproot/work "\$1"
+}
