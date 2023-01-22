@@ -139,11 +139,11 @@ function uiMsgbox() {
 # Show dialog with prompt that asks yes/no question
 # uiYesNo <prompt> <resultVarName>
 function uiYesNo() {
-	dialog --erase-on-exit --yesno "$1" 0 0;
+	dialog --erase-on-exit --title "$1" --yesno "$2" 0 0;
 	if [ "$?" == "0" ]; then
-		declare -g $2="yes";
+		declare -g $3="yes";
 	else
-		declare -g $2="no";
+		declare -g $3="no";
 	fi
 }
 
@@ -233,33 +233,40 @@ LAPAS_KEYMAP=$(getSystemKeymap);
 
 uiSelectNetworkDevices "single" "Select the upstream network card (house network / with internet connection)\nThis will be configured as dhcp client. You can change this later on if required" LAPAS_NIC_UPSTREAM || exit 1
 uiSelectNetworkDevices "multi" "Select the internal lapas network card(s). If you select multiple, a bond will be created" LAPAS_NIC_INTERNAL || exit 1
-uiTextInput "Input Lapa's internal subnet (form: xxx.xxx.xxx.1/yy).\nWARNING: Old games might not handle 10.0.0.0/8 networks very well.\nWARNING:This MUST NOT collidate with your upstream network addresses." "192.168.42.1/24" "${LAPAS_SUBNET_REGEX}" LAPAS_NET_ADDRESS || exit 1
+uiTextInput "Input LAPAS' internal subnet (form: xxx.xxx.xxx.1/yy).\nWARNING: Old games might not handle 10.0.0.0/8 networks very well.\nWARNING:This MUST NOT collidate with your upstream network addresses." "192.168.42.1/24" "${LAPAS_SUBNET_REGEX}" LAPAS_NET_ADDRESS || exit 1
+uiTextInput "Input the password you want to use for all administration accounts." "lapas" ".+" LAPAS_PASSWORD || exit 1;
 LAPAS_NET_IP=${LAPAS_NET_ADDRESS%/*};
 LAPAS_NET_SUBNET_BASEADDRESS="${LAPAS_NET_ADDRESS%.1/*}.0";
 LAPAS_NET_NETMASK=$(netmaskFromBits ${LAPAS_NET_ADDRESS#*/});
 
-logSection "Configuration Overview"
-logInfo "Host System:";
-logInfo "\t- Timezone: ${LAPAS_TIMEZONE}";
-logInfo "\t- Keymap: ${LAPAS_KEYMAP}";
-logInfo "\t- Locale [copied from host]:";
-cat /etc/default/locale | grep --invert-match -E "^#" | sed 's/^/\t\t/' | logInfo;
-logInfo "Guest System:";
-logInfo "\t- Kernel Version: ${LAPAS_GUEST_KERNEL_VERSION}";
-logInfo "Filesystem:";
-logInfo "\t- Install Base: ${LAPAS_BASE_DIR}";
-logInfo "\t- Scripts: ${LAPAS_SCRIPTS_DIR}";
-logInfo "\t- TFTP Dir: ${LAPAS_TFTP_DIR}";
-logInfo "\t- GuestRoot Dir: ${LAPAS_GUESTROOT_DIR}";
-logInfo "\t- User Homefolder Dir: ${LAPAS_USERHOMES_DIR}";
-logInfo "Upstream Network:";
-logInfo "\t- Adapter: ${LAPAS_NIC_UPSTREAM}";
-logInfo "Lapas Network:";
-logInfo "\t- Adapter(s): ${LAPAS_NIC_INTERNAL[@]}";
-logInfo "\t- Subnet Base-Address: ${LAPAS_NET_SUBNET_BASEADDRESS}"
-logInfo "\t- Lapas IP: ${LAPAS_NET_IP}";
-logInfo "\t- Lapas Netmask: ${LAPAS_NET_NETMASK}"
-logEmptyLine;
+CONFIGURATION_OVERVIEW="\
+Host System:
+	- Timezone: ${LAPAS_TIMEZONE}
+	- Keymap: ${LAPAS_KEYMAP}
+	- Locale:
+$(cat /etc/default/locale | grep --invert-match -E "^#" | sed 's/^/\t  /')
+	Upstream Network:
+		- Adapter: ${LAPAS_NIC_UPSTREAM}
+	Lapas Network:
+		- Adapter(s): ${LAPAS_NIC_INTERNAL[@]}
+		- Subnet Base-Address: ${LAPAS_NET_SUBNET_BASEADDRESS}
+		- Lapas IP: ${LAPAS_NET_IP}
+		- Lapas Netmask: ${LAPAS_NET_NETMASK}
+	Filesystem:
+		- Install Base: ${LAPAS_BASE_DIR}
+		- Scripts: ${LAPAS_SCRIPTS_DIR}
+		- TFTP Dir: ${LAPAS_TFTP_DIR}
+		- GuestRoot Dir: ${LAPAS_GUESTROOT_DIR}
+		- User Homefolder Dir: ${LAPAS_USERHOMES_DIR}
+Guest System:
+	- Kernel Version: ${LAPAS_GUEST_KERNEL_VERSION}
+	- Keymap [copied from host]: ${LAPAS_KEYMAP}
+	- Locale [copied from host]:
+$(cat /etc/default/locale | grep --invert-match -E "^#" | sed 's/^/\t  /')
+
+Continue?
+";
+echo "$CONFIGURATION_OVERVIEW";
 
 cliYesNo "This is your configuration. Continue?" resultConfigCheckOk;
 if [ "$resultConfigCheckOk" == "no" ]; then
@@ -445,12 +452,13 @@ cat /etc/default/locale | sed -r 's/^\w+="(.*)"/\1/g' | sed -n '/^.*_.*\..*/p' |
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" locale-gen;
 #runSilentUnfallible cp "/etc/default/locale" "${LAPAS_GUESTROOT_DIR}/etc/default/locale";
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemd-firstboot --force --timezone="${LAPAS_TIMEZONE}" \
-	--root-password="lapas" --setup-machine-id --hostname="guest";
+	--root-password="${LAPAS_PASSWORD}" --setup-machine-id --hostname="guest";
 ################################################################################
 # Set keymap with init service instead, because it then also creates the x11 keymap
 cat <<EOF > "${LAPAS_GUESTROOT_DIR}/etc/systemd/system/lapas-init-keymap.service"
 [Unit]
 ConditionPathExists=!/lapas/initflags/keymap
+Before=multi-user.target display-manager.service
 
 [Service]
 Type=oneshot
@@ -463,6 +471,7 @@ WantedBy=basic.target
 EOF
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable lapas-init-keymap;
 ################################################################################
+
 	
 #Prepare global folder for lapas-stuff
 runSilentUnfallible mkdir "${LAPAS_GUESTROOT_DIR}/lapas";
@@ -482,7 +491,7 @@ logSubsection "Preparing Guest Kernel..."
 # Use default parameters for new config options
 "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" bash -c "cd /usr/src/linux && make olddefconfig" || exit 1;
 while true; do
-	uiYesNo "[Expert Only]\nI configured your guest kernel with my config. Do you want to make any further changes to the config before I start compiling?" resultSpawnMenuconfig;
+	uiYesNo "Kernel Config" "[Expert Only]\nI configured your guest kernel with my config. Do you want to make any further changes to the config before I start compiling?" resultSpawnMenuconfig;
 	if [ "$resultSpawnMenuconfig" == "no" ]; then
 		break;
 	fi
@@ -554,12 +563,47 @@ logSubsection "Setting up UI, User & Home System"
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable lightdm;
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" groupadd --gid 1000 lanparty;
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" useradd --gid lanparty --home-dir /mnt/homeBase --create-home --uid 1000 lapas;
-"${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" bash -c "yes lapas | passwd lapas" || exit 1;
+"${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" bash -c "yes \"${LAPAS_PASSWORD}\" | passwd lapas" || exit 1;
 runSilentUnfallible mkdir -p "${LAPAS_GUESTROOT_DIR}/mnt/homes";
+runSilentUnfallible mkdir -p "${LAPAS_GUESTROOT_DIR}/mnt/.overlays";
 ################################################################################
 cat <<EOF >> "${LAPAS_GUESTROOT_DIR}/etc/fstab"
 ${LAPAS_NET_IP}:${LAPAS_USERHOMES_DIR}      /mnt/homes      nfs     defaults,nofail 0 0
 EOF
+################################################################################
+# When starting in user mode, this service runs the cleanup process as specified by the homeBase/.keep file.
+# All users (lapas, as well as players) thus will then have a cleaned homeBase as base for their homeFolder.
+cat <<"EOF" > "${LAPAS_GUESTROOT_DIR}/etc/systemd/system/lapas-filesystem.service"
+[Unit]
+Description="Prepares the LAPAS guest filesystem"
+ConditionPathExists=/.lapasUser
+DefaultDependencies=no
+After=local-fs-pre.target
+Before=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/lapas/initCleanHomeBase.sh
+RemainAfterExit=yes
+
+[Install]
+RequiredBy=local-fs.target
+EOF
+runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable lapas-filesystem;
+################################################################################
+cat <<"EOF" > "${LAPAS_GUESTROOT_DIR}/lapas/initCleanHomeBase.sh"
+#!/bin/bash
+
+USER_BASE="/mnt/homeBase";
+
+. /lapas/parseKeepPatterns.sh;
+
+# Apply cleanup with keep patterns to overlay (transform homeBase -> cleanHomeBase)
+pushd "${USER_BASE}" > /dev/null || exit 1;
+	find . \( "${FIND_KEEP_PATTERN_ARGS[@]}" \) -delete 2>&1 | grep -v "Directory not empty";
+popd > /dev/null;
+EOF
+runSilentUnfallible chmod a+x "${LAPAS_GUESTROOT_DIR}/lapas/initCleanHomeBase.sh";
 ################################################################################
 cat <<EOF >> "${LAPAS_GUESTROOT_DIR}/etc/pam.d/system-login"
 session       required   pam_exec.so          stdout /lapas/mountHome.sh
@@ -571,20 +615,16 @@ cat <<"EOF" > "${LAPAS_GUESTROOT_DIR}/lapas/mountHome.sh"
 # Constants
 USER_IMAGE_SIZE="16G";
 USER_IMAGE_BASE="/mnt/homes";
-USER_WORKDIR_BASE="/mnt/homeMounts";
+USER_WORKDIR_BASE="/mnt/.overlays";
 USER_BASE="/mnt/homeBase";
 LAPAS_USER_GROUPNAME="lanparty";
-
-function createDir() {
-	mkdir -p "$1" || exit 1;
-	chown $2:$LAPAS_USER_GROUPNAME "$1" || exit 1;
-}
 
 # Only run mountHome-script for lapas users
 [ $(id -ng $PAM_USER) != "$LAPAS_USER_GROUPNAME" ] && exit 0;
 
 if [[ ! -f "/.lapasUser" && "$PAM_USER" != "lapas" ]]; then
-	exit 1; # Forbid normal user to login in admin mode
+	>&2 echo "In Admin mode, only lapas can login"
+	exit 1;
 fi
 
 echo "[LOGON] Login user: $PAM_USER, home: $USER_HOME";
@@ -598,23 +638,31 @@ if [ "$PAM_USER" != "lapas" ] && [ "$PAM_TYPE" == "open_session" ]; then
 	if [ ! -f "$USER_IMAGE" ]; then
 		# create image for user-specific dynamic data
 		truncate -s $USER_IMAGE_SIZE "$USER_IMAGE" || exit 1;
-		mkfs.ext4 -m0 "$USER_IMAGE" || exit 1;
+		mkfs.ext4 -m0 "$USER_IMAGE" 1> /dev/null 2> /dev/null || exit 1;
 	fi
 	if [ $(mount | grep "$USER_IMAGE" | wc -l) == 0 ]; then
 		# create user-specific work folder
-		createDir "$USER_IMAGE_MOUNTDIR" $PAM_USER || exit 1;
+		mkdir -p "$USER_IMAGE_MOUNTDIR" || exit 1;
 		# mount user-image
 		mount "$USER_IMAGE" "$USER_IMAGE_MOUNTDIR" || exit 1;
-		createDir "$USER_IMAGE_MOUNTDIR/upper" $PAM_USER || exit 1;
-		createDir "$USER_IMAGE_MOUNTDIR/work" $PAM_USER || exit 1;
+		mkdir -p "$USER_IMAGE_MOUNTDIR/upper" || exit 1;
+		mkdir -p "$USER_IMAGE_MOUNTDIR/work" || exit 1;
+		chown -R $PAM_USER:lanparty "$USER_IMAGE_MOUNTDIR" || exit 1;
+
+		# Run user upper-dir cleanup
+		. /lapas/parseKeepPatterns.sh;
+		pushd "$USER_IMAGE_MOUNTDIR/upper" > /dev/null || exit 1;
+			find . \( "${FIND_DELETE_PATTERN_ARGS[@]}" \) -delete 2>&1 | grep -v "Directory not empty";
+		popd > /dev/null;
 	fi
 	if [ $(mount | grep "$USER_HOME" | wc -l) == 0 ]; then
-		createDir "$USER_HOME" $PAM_USER || exit 1;
+		mkdir -p "$USER_HOME" || exit 1;
+		chown -R $PAM_USER:lanparty "$USER_HOME" || exit 1;
 		mount -t overlay overlay -o lowerdir="${USER_BASE}",upperdir="${USER_IMAGE_MOUNTDIR}/upper",workdir="${USER_IMAGE_MOUNTDIR}/work" "$USER_HOME" || exit 1;
 	fi
 fi
 EOF
-chmod a+x "${LAPAS_GUESTROOT_DIR}/lapas/mountHome.sh";
+runSilentUnfallible chmod a+x "${LAPAS_GUESTROOT_DIR}/lapas/mountHome.sh";
 ################################################################################
 echo "nameserver ${LAPAS_NET_IP}" >> "${LAPAS_GUESTROOT_DIR}/etc/resolv.conf";
 ################################################################################
@@ -630,15 +678,34 @@ cat <<"EOF" > "${LAPAS_GUESTROOT_DIR}/mnt/homeBase/.keep"
 #                       User-Changes are kept (NOT deleted from user overlay)
 
 # Proper default XFCE setup
+# These are initially provided from the homeBase, but players can make permanent changes for themselves
 bi .config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml
 bi .config/xfce4/xfconf/xfce-perchannel-xml/thunar.xml
 bi .config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml
 
+# This folder contains lapas specific stuff and is >always< supplied from the homeBase.
 b .lapas
 EOF
 ################################################################################
 runSilentUnfallible mkdir "${LAPAS_GUESTROOT_DIR}/mnt/homeBase/.lapas";
 runSilentUnfallible chown -R 1000:1000 "${LAPAS_GUESTROOT_DIR}/mnt/homeBase";
+################################################################################
+cat <<"EOF" > "${LAPAS_SCRIPTS_DIR}/addUser.sh"
+#!/bin/bash
+
+# import LAPAS config
+. $(dirname "$0")/config;
+
+userName="$1";
+if [ "$userName" == "" ];then
+	echo "Usage:  $0 <userName>"; exit 1;
+fi
+
+cd "${LAPAS_GUESTROOT_DIR}";
+echo "Creating User: $userName";
+./bin/arch-chroot ./ useradd -d "/home/${userName}" -g lanparty -M -o -u 1000 "$userName";
+./bin/arch-chroot ./ passwd "$userName";
+EOF
 ################################################################################
 cat <<"EOF" > "${LAPAS_SCRIPTS_DIR}/homeFolderCleanup.sh"
 #!/bin/bash
@@ -713,21 +780,16 @@ The setup of your LanPArtyServer is complete. All services are up and running, n
 
 
 \Zb===== The Guest =====\ZB
-The 'guest' is the system that users of the LAPAS server (players) log into.
-This is an ArchLinux installation hosted on LAPAS, that clients boot into over the network.
-This guest has one base-user [name: lapas, pw: lapas, home: /mnt/homeBase].
-It's homefolder is the basis of all normal users' homefolders, meaning that all files within its homefolder will 'magically appear' in all players' homefolders.
+The 'guest' is an ArchLinux installation hosted on LAPAS, that clients boot into over the network.
+This guest has a base-user [name: lapas, home: /mnt/homeBase] that is not meant for actual game usage.
+It's homefolder is the basis of all players' homefolders, meaning that the files within its homefolder will 'magically appear' in all players' homefolders.
 Thus, you can e.g. create wine prefixes there, and they will automatically be accessible to all players without the need to copy them to every homefolder.
-The player's config files and play states are layered on top of homeBase and stored in the player's specific permanent storage.
-Though if a player changes any of the files that are provided by the underlying homeBase, they will be copied into the players' permanent storage.
-From then on, changes from the homeBase will not be represented in the player's homefolder anymore. (For more information, see Linux overlayfs)
-Therefore, it is important that you keep this system clean. For that, the lapas user has a '.keep' file within its homefolder, that specifies \
-a set of patterns and rules that should be applied during home-filesystem cleanup. (See the mentioned .keep file for more information)
-This cleanup process runs automatically at every server start, so if you make changes to the homeBase, be sure to \
-reboot the server and log into a normal player account, to see if it worked like you intended.
-Instead of rebooting, you can also run cleanup manually on the server, using:
-> cd \"${LAPAS_BASE_DIR}\"
-> ./scripts/homeFolderCleanup
+The player's config files and play states are layered on top of homeBase and stored individually in each player's specific permanent storage.
+
+If a player changes any of the files that are provided by the underlying homeBase, the modified version will be stored into the players' permanent storage.
+From then on, changes you make to these files as user lapas in homeBase will not reach the player's homefolder anymore. (For more information, see Linux overlayfs)
+To keep this clean, LAPAS employs a '.keep' file within homeBase that contains a set of patterns and rules specifying which files are supplied \
+by homeBase, and which files a user is allowed to overwrite. (see the mentioned .keep file for more information on this)
 
 
 \Zb===== Next Step =====\ZB
@@ -736,23 +798,29 @@ The boot menu will then present you with two options:
 
 \ZuUser\ZU
 The User mode mounts your guest immutable. This is the mode meant for actual gameplay.
-Any changes made to the system (apart from user home directories) will not be permanent, and only within your RAM.
-So this mode is also perfect to test changes you want to make to the guest system.
+Any changes made to the guest system, as well homeBase will not be permanent. (Persisted in your machines RAM -> gone after a reboot)
+Changes made towards player's home directories will be persisted in the players' permanent storage.
+When booting into this mode, the patterns specified in 'homeBase/.keep' are applied (once during boot); meaning that if you log into user lapas in this mode, you will only see the files \
+that would be supplied to players' homefolders by homeBase.
+Like this, logging into user lapas after a fresh guest system boot in user mode basically shows you what a new player account will see.
+
 
 \ZuAdmin\ZU
-The Admin mode mounts your guest mutable. You should only boot into this when you plan to make permanent changes to the guest system \
+The Admin mode mounts your guest as mutable. You should only boot into this when you plan to make permanent changes to the guest system \
 (e.g. by installing new games, creating new wine bottles, etc.).
+In this mode, logging into player accounts is prohibited.
 
 
 
 \Zb===== Managing Users =====\ZB
-A new user has to be added before the corresponding client (that wants to use the user) boots into the guest.
+A new user has to be added before the corresponding client (that wants to use the user) boots into the guest system.
 This can either be done on the server:
 > cd \"${LAPAS_BASE_DIR}\"
 > ./scripts/addUser.sh <newUser>
-Or by starting your client (User Mode), logging into the lapas user and using the Desktop shortcut.
+Or by quickly logging into the lapas user using your client (in User Mode), then using the Desktop shortcut.
 Directly afterwards, you can then logout and switch to your user to start gaming.
-In both cases, you will be asked for a password. Letting the use change their password themselfes is not possible atm. (due to the immutable filesystem).
+In both cases, you will be asked for a password for the new account. Letting the use change their password themselfes is not possible atm. (due to the immutable filesystem), \
+so you will probably want to either use a default password or let them enter it themselfes on your machine.
 
 
 ===== ATTENTION =====
@@ -772,13 +840,4 @@ uiMsgbox "Installation complete" "${LAPAS_WELCOME}";
 # apparently, this also supports overlayfs, so we got this going for us - which is nice!
 
 #TODO:
-# run home cleanup on every server start
-# before dhcp!
-
-#TODO:
 # Desktop shortcut in lapas guest user to add new users (ssh to server with cert)
-
-
-#TODO: keep folders without trailing / !!
-
-#TODO In Admin mode, only lapas can login. In User Mode, everyone can login
