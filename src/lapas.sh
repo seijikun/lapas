@@ -31,6 +31,7 @@ function printHeader() {
 #!import helpers/logging.sh
 #!import helpers/process.sh
 #!import helpers/system.sh
+#!import helpers/arrays.sh
 
 #!import ui/cli.sh
 #!import ui/dialog.sh
@@ -60,7 +61,7 @@ logMakeSure "WARNING: This \"distribution\" is not hardened, and not meant for e
 ################################################
 logSection "Preparing environment";
 logInfo "Installing dependencies...";
-runSilentUnfallible apt-get install -y dialog ethtool openssh-server ntp tftpd-hpa pxelinux samba libnfs-utils isc-dhcp-server grub-pc-bin grub-efi-amd64-bin grub-efi-ia32-bin binutils nfs-kernel-server dnsmasq;
+runSilentUnfallible apt-get install -y dialog ethtool openssh-server ntp pxelinux samba libnfs-utils isc-dhcp-server grub-pc-bin grub-efi-amd64-bin grub-efi-ia32-bin binutils nfs-kernel-server dnsmasq;
 
 ################################################
 logSection "Configuration";
@@ -205,7 +206,6 @@ pushd "/";
 	streamBinaryPayload "${SELF_PATH}" "__PAYLOAD_SERVER_RESOURCES__" | base64 -d | gzip -d | tar -x --no-same-owner || exit 1;
 popd;
 runSilentUnfallible configureFileInplace /etc/systemd/system/lapas-api-server.service "${LAPAS_CONFIGURATION_OPTIONS[@]}";
-runSilentUnfallible configureFileInplace /etc/default/tftpd-hpa "${LAPAS_CONFIGURATION_OPTIONS[@]}";
 runSilentUnfallible configureFileInplace /etc/dhcp/dhcpd.conf "${LAPAS_CONFIGURATION_OPTIONS[@]}";
 runSilentUnfallible configureFileInplace /etc/exports "${LAPAS_CONFIGURATION_OPTIONS[@]}";
 runSilentUnfallible configureFileInplace /etc/systemd/network/20-upstream.network "${LAPAS_CONFIGURATION_OPTIONS[@]}";
@@ -291,19 +291,16 @@ echo 'INTERFACESv4="lapas"' >> /etc/default/isc-dhcp-server;
 runSilentUnfallible systemctl enable isc-dhcp-server
 
 
-logSubsection "Setting up TFTP Server...";
+logSubsection "Setting up DNS and TFTP Servers...";
 ################################################################################
-runSilentUnfallible grub-mknetdir --net-directory="${LAPAS_TFTP_DIR}" --subdir=grub2;
-runSilentUnfallible systemctl enable tftpd-hpa;
-
-
-logSubsection "Setting up DNS...";
-################################################################################
-cat <<"EOF" >> "/etc/dnsmasq.conf"
+cat <<EOF >> "/etc/dnsmasq.conf"
 # enable DNS on our internal lapas bond network
 interface=lapas
-# disable DHCP / TFTP (dnsmasq is a little too weak for our dhcp needs)
+# disable DHCP (dnsmasq is a little too weak on the feature-front for our dhcp needs)
 no-dhcp-interface=
+# use dnsmasq as tftp server
+enable-tftp
+tftp-root="${LAPAS_TFTP_DIR}"
 EOF
 runSilentUnfallible systemctl enable dnsmasq;
 
@@ -330,13 +327,14 @@ runSilentUnfallible systemctl enable lapas-api-server;
 ################################################################################################
 logSection "Starting LAPAS Services...";
 ################################################################################################
+uiAwaitLinkStateUp "${LAPAS_NIC_UPSTREAM}" "${LAPAS_NIC_INTERNAL[@]}" "lapas" || exit 1;
+
 runSilentUnfallible systemctl stop networking
 runSilentUnfallible systemctl restart systemd-networkd
 sleep 2; # wait for this to finish
 runSilentUnfallible systemctl restart rpc-statd;
 runSilentUnfallible systemctl restart ntp;
 runSilentUnfallible systemctl restart dnsmasq;
-runSilentUnfallible systemctl restart tftpd-hpa;
 runSilentUnfallible systemctl restart isc-dhcp-server
 runSilentUnfallible systemctl start lapas-api-server;
 

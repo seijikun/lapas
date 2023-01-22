@@ -61,7 +61,7 @@ function uiSelectNetworkDevices() {
 function uiTextInput() {
 	while true; do
 		uiDialogWithResult "$4" --erase-on-exit --inputbox "$1" 0 0 "$2";
-		if [ "$?" != "0" ]; then exit 1; fi
+		if [ "$?" != "0" ]; then return 1; fi
 		# check validity
 		(echo "${!4}" | grep -Eq "^${3}$");
 		if [ "$?" == "0" ]; then
@@ -69,5 +69,31 @@ function uiTextInput() {
 		else
 			uiMsgbox "Input Error" "The input value was invalid. Try again.";
 		fi
+	done
+}
+
+# Show dialog that waits until all the given NICs have a link-state of UP
+# Usage uiAwaitLinkStateUp <nic0> <nic1> ...
+function uiAwaitLinkStateUp() {
+	awaitingNicNames=( "$@" );
+	while true; do
+		linkStateDialogText=$'Awaiting link-state of active...\nPlease make sure both your internal and upstream networks are connected.\n';
+		allUp=1;
+		while read -r nicLine; do
+			nicName=$(echo "$nicLine" | awk '{ print $1 }');
+			arrayContainsElement "$nicName" "$@";
+			if [ "$?" != 0 ]; then continue; fi
+			nicLinkState=$(echo "$nicLine" | awk '{ print $2 }');
+			nicMacAddress=$(echo "$nicLine" | awk '{ print $3 }');
+			if [ "$nicLinkState" != "UP" ]; then allUp=0; fi
+			
+			printf -v linkStateDialogText "%s\nLink: %s [%s]: %s" "$linkStateDialogText" "$nicName" "$nicMacAddress" "$nicLinkState";
+		done <<< $(ip -brief link show);
+		if [ $allUp == 1 ]; then
+			return 0;
+		fi
+		dialog --title "Awaiting NICs to come up" --infobox "${linkStateDialogText}" 0 0;
+		sleep 1;
+		if [ $? != 0 ]; then return 1; fi # sleep was cancelled (ctrl + c)
 	done
 }
