@@ -145,12 +145,12 @@ logSection "Setting up Guest OS (Archlinux base installation)...";
 # see: https://wiki.archlinux.org/title/Install_Arch_Linux_from_existing_Linux#From_a_host_running_another_Linux_distribution
 runSilentUnfallible mkdir -p "${LAPAS_GUESTROOT_DIR}";
 runSilentUnfallible mount -o bind "${LAPAS_GUESTROOT_DIR}" "${LAPAS_GUESTROOT_DIR}";
-echo "${LAPAS_GUESTROOT_DIR} ${LAPAS_GUESTROOT_DIR} none defaults,bind 0 0" >> "/etc/fstab";
+echo "${LAPAS_GUESTROOT_DIR} ${LAPAS_GUESTROOT_DIR} none defaults,bind 0 0" >> "/etc/fstab" || exit 1;
 pushd "${LAPAS_GUESTROOT_DIR}";
-	logSubsection "Downloading Archlinux Bootstrap..."
+	logSubsection "Downloading Archlinux Bootstrap...";
 	wget https://ftp.fau.de/archlinux/iso/latest/archlinux-bootstrap-x86_64.tar.gz || exit 1;
-	logSubsection "Preparing Archlinux Bootstrap..."
-	runSilentUnfallible tar xzf archlinux-bootstrap-x86_64.tar.gz --strip-components=1 --numeric-owner
+	logSubsection "Preparing Archlinux Bootstrap...";
+	runSilentUnfallible tar xzf archlinux-bootstrap-x86_64.tar.gz --strip-components=1 --numeric-owner;
 	rm archlinux-bootstrap-x86_64.tar.gz;
 popd;
 
@@ -220,24 +220,23 @@ pushd "${LAPAS_GUESTROOT_DIR}/usr/src" || exit 1;
 	wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-${LAPAS_GUEST_KERNEL_VERSION}.tar.xz || exit 1;
 	runSilentUnfallible tar xvf ./linux-${LAPAS_GUEST_KERNEL_VERSION}.tar.xz;
 	runSilentUnfallible rm ./linux-${LAPAS_GUEST_KERNEL_VERSION}.tar.xz;
-	runSilentUnfallible ln -sf linux-${LAPAS_GUEST_KERNEL_VERSION} ./linux;
-	streamBinaryPayload "$SELF_PATH" "__PAYLOAD_GUEST_KERNEL_CONF__" | base64 -d | gzip -d > "${LAPAS_GUESTROOT_DIR}/usr/src/linux/.config" || exit 1;
+	KERNEL_DIR="/usr/src/linux-${LAPAS_GUEST_KERNEL_VERSION}";
+	streamBinaryPayload "$SELF_PATH" "__PAYLOAD_GUEST_KERNEL_CONF__" | base64 -d | gzip -d > "${LAPAS_GUESTROOT_DIR}/${KERNEL_DIR}/.config" || exit 1;
 popd || exit 1;
 
 logSubsection "Configuring Guest Kernel..."
 # Use default parameters for new config options
-"${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" bash -c "cd /usr/src/linux && make olddefconfig" || exit 1;
+"${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" bash -c "cd ${KERNEL_DIR} && make olddefconfig" || exit 1;
 while true; do
 	uiYesNo "Kernel Config" "[Expert Only]\nI configured your guest kernel with my config. Do you want to make any further changes to the config before I start compiling?" resultSpawnMenuconfig;
 	if [ "$resultSpawnMenuconfig" == "no" ]; then
 		break;
 	fi
-	"${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" bash -c "cd /usr/src/linux && make menuconfig" || exit 1;
+	"${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" bash -c "cd ${KERNEL_DIR} && make menuconfig" || exit 1;
 done
 
 logSection "Compiling and Installing your kernel...";
-"${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" bash -c "cd /usr/src/linux && make -j$(nproc) && make modules_install" || exit 1;
-runSilentUnfallible cp "${LAPAS_GUESTROOT_DIR}/usr/src/linux/arch/x86_64/boot/bzImage" "${LAPAS_TFTP_DIR}/bzImage";
+"${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" bash -c "cd ${KERNEL_DIR} && make -j$(nproc) && make modules_install" || exit 1;
 
 
 
@@ -254,8 +253,6 @@ runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_
 logSubsection "Generating Guest Ramdisk..."
 # we intentionally keep this ramdisk basically empty, so we don't have to rebuild it with every new kernel
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" mkinitcpio -k "${LAPAS_GUEST_KERNEL_VERSION}" -c /lapas/mkinitcpio.conf -g /boot/ramdisk.img;
-runSilentUnfallible mv "${LAPAS_GUESTROOT_DIR}/boot/ramdisk.img" "${LAPAS_TFTP_DIR}/ramdisk.img";
-runSilentUnfallible chmod a+r "${LAPAS_TFTP_DIR}/ramdisk.img";
 
 logSubsection "Setting up UI, User & Home System"
 # auto-start display manager, create management user and home folder system with all mount points
@@ -267,7 +264,7 @@ runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" groupadd --gid 1000 lanparty;
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" useradd --gid lanparty --home-dir /mnt/homeBase --create-home --uid 1000 lapas;
 "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" bash -c "yes \"${LAPAS_PASSWORD}\" | passwd lapas" || exit 1;
-
+runSilentUnfallible "${LAPAS_SCRIPTS_DIR}/updateBootmenus.sh";
 
 
 
@@ -410,8 +407,6 @@ uiMsgbox "Installation complete" "${LAPAS_WELCOME}";
 # https://github.com/util-linux/util-linux/pull/1661
 # When this is supported with mount, we don't need the ugly "every user has the same uid" hack anymore.
 # apparently, this also supports overlayfs, so we got this going for us - which is nice!
-
-#TODO: scripts/guestChroot that automatically creates a multi-version kernel boot menu.
 
 exit 0;
 

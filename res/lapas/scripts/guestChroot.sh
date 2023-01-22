@@ -4,8 +4,12 @@ if [ "$USER" != "root" ]; then
 fi
 
 # import LAPAS config
-. $(dirname "$0")/config;
+. $(dirname "$0")/config || exit $?;
 
 cd "${LAPAS_GUESTROOT_DIR}" || exit 1;
 echo "Entering chroot now..";
 ./bin/arch-chroot ./;
+
+echo "####################";
+echo "Updating bootmenu...";
+"${LAPAS_SCRIPTS_DIR}/updateBootmenus.sh" || exit $?;

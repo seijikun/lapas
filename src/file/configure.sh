@@ -35,7 +35,7 @@ function configureFile() {
 	inputFilePath="$1"; shift;
 	outputFilePath="$1"; shift;
 	if [ ! -f "$inputFilePath" ]; then
-		1>&2 echo "configureFile: inputFile \"${inputFilePath}\" does not exist!"; exit 1;
+		1>&2 echo "configureFile: inputFile \"${inputFilePath}\" does not exist!"; return 1;
 	fi
 	resultContent=$(cat "$inputFilePath" | configureStream "$@");
 	echo "$resultContent" > "$outputFilePath";
