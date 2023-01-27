@@ -160,7 +160,7 @@ popd;
 logSubsection "Setting up locale and time settings"
 # TODO: Ugh... debian11 does not yet have systemd-firstboot in its distro (about to change in the future, bug already fixed).
 # refactor this manual stuff to systemd-firstboot --root="<guest>" --copy
-cat /etc/default/locale | sed -r 's/^\w+="(.*)"/\1/g' | sed -n '/^.*_.*\..*/p' | uniq >> "${LAPAS_GUESTROOT_DIR}/etc/locale.gen";
+cat /etc/locale.gen | grep -v -E "^#" | grep -E "[a-zA-Z]+" >> "${LAPAS_GUESTROOT_DIR}/etc/locale.gen";
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" locale-gen;
 #runSilentUnfallible cp "/etc/default/locale" "${LAPAS_GUESTROOT_DIR}/etc/default/locale";
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemd-firstboot --force --timezone="${LAPAS_TIMEZONE}" \
