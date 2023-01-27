@@ -1,6 +1,6 @@
 [Desktop Entry]
 Comment=Add a new LAPAS user
-Exec=/mnt/homeBase/.lapas/addUser.sh
+Exec=/mnt/homeBase/.lapas/bin/lapasAddUser
 Icon=system-users
 Name=LAPAS Add User
 NoDisplay=false

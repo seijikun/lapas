@@ -20,6 +20,9 @@ b .local/share/applications
 # This folder contains lapas specific stuff and is >always< supplied from the homeBase.
 b .lapas
 
+# Environment Setup
+b .bashrc
+
 # Example: Wine games [here, homeBase should not provide user-specific stuff like user.reg]
 #b .wineprefixes/*/drive_c
 #b .wineprefixes/*/dosdevices
