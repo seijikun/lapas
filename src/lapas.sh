@@ -200,6 +200,7 @@ runSilentUnfallible configureFileInplace "${LAPAS_SCRIPTS_DIR}/config" "${LAPAS_
 runSilentUnfallible configureFileInplace "${LAPAS_GUESTROOT_DIR}/etc/initcpio/hooks/remountoverlay" "${LAPAS_CONFIGURATION_OPTIONS[@]}";
 runSilentUnfallible configureFileInplace "${LAPAS_GUESTROOT_DIR}/etc/systemd/system/lapas-firstboot-setup.service" "${LAPAS_CONFIGURATION_OPTIONS[@]}";
 runSilentUnfallible chown -R 1000:1000 "${LAPAS_GUESTROOT_DIR}/mnt/homeBase";
+runSilentUnfallible chmod a+r "${LAPAS_GUESTROOT_DIR}/lapas/setupShell.sh";
 
 pushd "/";
 	streamBinaryPayload "${SELF_PATH}" "__PAYLOAD_SERVER_RESOURCES__" | base64 -d | gzip -d | tar -x --no-same-owner || exit 1;

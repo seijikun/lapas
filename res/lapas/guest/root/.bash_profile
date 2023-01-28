@@ -1,0 +1,1 @@
+. /lapas/setupShell.sh
