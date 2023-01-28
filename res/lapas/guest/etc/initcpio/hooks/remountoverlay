@@ -12,6 +12,6 @@ lapas_mount_handler() {
 	mkdir /tmproot/work
 	touch /tmproot/upper/.lapasUser
 
-	nfsmount @@LAPAS_NET_IP@@:@@LAPAS_GUESTROOT_DIR@@ /dev/nfs
+	mount.nfs4 @@LAPAS_NET_IP@@:/guest /dev/nfs -o @@LAPAS_NFS_USER_MOUNTOPTIONS@@
 	mount -t overlay overlay -o lowerdir=/dev/nfs,upperdir=/tmproot/upper,workdir=/tmproot/work "$1"
 }

@@ -1,2 +1,3 @@
-@@LAPAS_GUESTROOT_DIR@@ *(rw,no_root_squash,async,no_subtree_check)
-@@LAPAS_USERHOMES_DIR@@ *(rw,no_root_squash,async,no_subtree_check)
+/srv/nfs *(rw,no_root_squash,async,no_subtree_check,fsid=0)
+/srv/nfs/guest *(rw,no_root_squash,async,no_subtree_check,crossmnt)
+/srv/nfs/homes *(rw,no_root_squash,async,no_subtree_check,crossmnt)

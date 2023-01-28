@@ -85,6 +85,8 @@ LAPAS_NET_SUBNET_BASEADDRESS="${LAPAS_NET_ADDRESS%.1/*}.0";
 LAPAS_NET_NETMASK=$(netmaskFromBits ${LAPAS_NET_ADDRESS#*/});
 LAPAS_NET_DHCP_ADDRESSES_START="${LAPAS_NET_ADDRESS%.1/*}.10";
 LAPAS_NET_DHCP_ADDRESSES_END="${LAPAS_NET_ADDRESS%.1/*}.254";
+LAPAS_NFS_VERSION="4.2";
+LAPAS_NFS_USER_MOUNTOPTIONS="vers=${LAPAS_NFS_VERSION},noatime,nodiratime,nolock,nconnect=4";
 
 CONFIGURATION_OVERVIEW="\
 Host System:
@@ -132,6 +134,8 @@ LAPAS_CONFIGURATION_OPTIONS=(
 	"LAPAS_KEYMAP=${LAPAS_KEYMAP}"
 	"LAPAS_PASSWORD_SALT=${LAPAS_PASSWORD_SALT}"
 	"LAPAS_PASSWORD_HASH=$(echo "${LAPAS_PASSWORD_SALT}${LAPAS_PASSWORD}" | sha512sum | cut -d' ' -f1)"
+	"LAPAS_NFS_VERSION=${LAPAS_NFS_VERSION}"
+	"LAPAS_NFS_USER_MOUNTOPTIONS=${LAPAS_NFS_USER_MOUNTOPTIONS}"
 );
 
 cliYesNo "This is your configuration. Continue?" resultConfigCheckOk;
@@ -148,7 +152,7 @@ logSection "Setting up Guest OS (Archlinux base installation)...";
 # see: https://wiki.archlinux.org/title/Install_Arch_Linux_from_existing_Linux#From_a_host_running_another_Linux_distribution
 runSilentUnfallible mkdir -p "${LAPAS_GUESTROOT_DIR}";
 runSilentUnfallible mount -o bind "${LAPAS_GUESTROOT_DIR}" "${LAPAS_GUESTROOT_DIR}";
-echo "${LAPAS_GUESTROOT_DIR} ${LAPAS_GUESTROOT_DIR} none defaults,bind 0 0" >> "/etc/fstab" || exit 1;
+echo "${LAPAS_GUESTROOT_DIR} ${LAPAS_GUESTROOT_DIR} none bind 0 0" >> "/etc/fstab" || exit 1;
 pushd "${LAPAS_GUESTROOT_DIR}";
 	logSubsection "Downloading Archlinux Bootstrap...";
 	wget https://ftp.fau.de/archlinux/iso/latest/archlinux-bootstrap-x86_64.tar.gz || exit 1;
@@ -196,7 +200,7 @@ echo "NTP=${LAPAS_NET_IP}" >> "${LAPAS_GUESTROOT_DIR}/etc/systemd/timesyncd.conf
 logSection "Extracting LAPAS resources..."
 ################################################################################################
 streamBinaryPayload "${SELF_PATH}" "__PAYLOAD_LAPAS_RESOURCES__" | base64 -d | gzip -d | tar -x --no-same-owner || exit 1;
-runSilentUnfallible configureFileInplace "${LAPAS_SCRIPTS_DIR}/config" "${LAPAS_CONFIGURATION_OPTIONS[@]}";
+runSilentUnfallible configureOptionsToFile "${LAPAS_SCRIPTS_DIR}/config" "${LAPAS_CONFIGURATION_OPTIONS[@]}";
 runSilentUnfallible configureFileInplace "${LAPAS_GUESTROOT_DIR}/etc/initcpio/hooks/remountoverlay" "${LAPAS_CONFIGURATION_OPTIONS[@]}";
 runSilentUnfallible configureFileInplace "${LAPAS_GUESTROOT_DIR}/etc/systemd/system/lapas-firstboot-setup.service" "${LAPAS_CONFIGURATION_OPTIONS[@]}";
 runSilentUnfallible chown -R 1000:1000 "${LAPAS_GUESTROOT_DIR}/mnt/homeBase";
@@ -247,7 +251,7 @@ logSection "Setting up Guest OS Boot Process..."
 ################################################################################################
 runSilentUnfallible grub-mknetdir --net-directory="${LAPAS_TFTP_DIR}" --subdir=grub2;
 cat <<EOF >> "${LAPAS_GUESTROOT_DIR}/etc/fstab"
-${LAPAS_NET_IP}:${LAPAS_USERHOMES_DIR}      /mnt/homes      nfs     defaults,nofail 0 0
+${LAPAS_NET_IP}:/homes      /mnt/homes      nfs     ${LAPAS_NFS_USER_MOUNTOPTIONS} 0 0
 EOF
 # Set keymap with init service instead, because it then also creates the x11 keymap
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable lapas-firstboot-setup;
@@ -308,8 +312,15 @@ runSilentUnfallible systemctl enable dnsmasq;
 
 logSubsection "Setting up NFS...";
 ################################################################################
+runSilentUnfallible mkdir -p "/srv/nfs";
+runSilentUnfallible mkdir -p "/srv/nfs/guest";
+runSilentUnfallible mkdir -p "/srv/nfs/homes";
+echo "${LAPAS_GUESTROOT_DIR} /srv/nfs/guest none bind 0 0" >> "/etc/fstab" || exit 1;
+echo "${LAPAS_USERHOMES_DIR} /srv/nfs/homes none bind 0 0" >> "/etc/fstab" || exit 1;
+runSilentUnfallible mount -o bind "${LAPAS_GUESTROOT_DIR}" "/srv/nfs/guest";
+runSilentUnfallible mount -o bind "${LAPAS_USERHOMES_DIR}" "/srv/nfs/homes";
 runSilentUnfallible exportfs -ra;
-runSilentUnfallible systemctl enable rpc-statd;
+runSilentUnfallible systemctl restart nfs-kernel-server;
 
 
 logSubsection "Setting up NTP...";

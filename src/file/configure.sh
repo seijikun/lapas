@@ -48,3 +48,15 @@ function configureFileInplace() {
 	filePath="$1"; shift;
 	configureFile "$filePath" "$filePath" "$@"; return $?;
 }
+
+
+# Dump all the given configure options to the given output file in a format such that it can be imported
+# via source into a bash file.
+# Usage: configureOptionsToFile <outputFilePath> "<name>=<value>" ...
+function configureOptionsToFile() {
+	outputFilePath="$1"; shift;
+	echo -n "" > "$outputFilePath" || return 1; # make sure dst file is empty
+	for option in "$@"; do
+		echo "$option" >> "$outputFilePath" || return 1;
+	done
+}

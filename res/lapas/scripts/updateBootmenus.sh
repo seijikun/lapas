@@ -7,7 +7,7 @@ fi
 . $(dirname "$0")/config;
 # KERNEL-CMDLINE
 GUEST_USER_OPTIONS="ip=dhcp carrier_timeout=10";
-GUEST_ADMIN_OPTIONS="ip=dhcp carrier_timeout=10 root=/dev/nfs rw nfsroot=${LAPAS_NET_IP}:${LAPAS_GUESTROOT_DIR},vers=3";
+GUEST_ADMIN_OPTIONS="ip=dhcp carrier_timeout=10 root=/dev/nfs rw nfsroot=${LAPAS_NET_IP}:/guest,vers=${LAPAS_NFS_VERSION}";
 
 ################################################################################################
 
