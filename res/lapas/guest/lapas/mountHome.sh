@@ -17,8 +17,8 @@ if [[ ! -f "/.lapasUser" && "$PAM_USER" != "lapas" ]]; then
 	exit 1;
 fi
 
-echo "[LOGON] Login user: $PAM_USER, home: $USER_HOME";
 USER_HOME=$(getent passwd $PAM_USER | cut -d: -f6);
+echo "[LOGON] Login user: $PAM_USER, home: $USER_HOME";
 
 if [ "$PAM_USER" != "lapas" ] && [ "$PAM_TYPE" == "open_session" ]; then
 	echo "[LOGON] Detected normal user";
@@ -38,12 +38,17 @@ if [ "$PAM_USER" != "lapas" ] && [ "$PAM_TYPE" == "open_session" ]; then
 		assertSuccessfull mkdir -p "$USER_IMAGE_MOUNTDIR/upper";
 		assertSuccessfull mkdir -p "$USER_IMAGE_MOUNTDIR/work";
 		assertSuccessfull chown -R $PAM_USER:lanparty "$USER_IMAGE_MOUNTDIR";
-
-		# Run user upper-dir cleanup
-		. /lapas/parseKeepPatterns.sh || exit 1;
-		pushd "$USER_IMAGE_MOUNTDIR/upper" || exit 1;
-			find . \( "${FIND_DELETE_PATTERN_ARGS[@]}" \) -mount -delete 2>&1 | grep -v "Directory not empty";
-		popd || exit 1;
+		# remove cleanup marker from user's upper dir on every mount (once per boot)
+		if [ -f "${USER_IMAGE_MOUNTDIR}/upper/.keepApplied" ]; then
+			rm "${USER_IMAGE_MOUNTDIR}/upper/.keepApplied";
+		fi
+	fi
+	if [ ! -f "${USER_IMAGE_MOUNTDIR}/upper/.keepApplied" ]; then
+		# Cleanup has not yet run on this boot, run it now
+		"/lapas/keepEngine.py" --dryrun user "${USER_BASE}/.keep" "${USER_IMAGE_MOUNTDIR}/upper" || exit 1;
+		# if cleanup ran successfully, create a temporary marker file .keepApplied that will be
+		# deleted upon next home mount (after a reboot).
+		touch "${USER_IMAGE_MOUNTDIR}/upper/.keepApplied";
 	fi
 	if [ $(mount | grep "$USER_HOME" | wc -l) == 0 ]; then
 		assertSuccessfull mkdir -p "$USER_HOME";
