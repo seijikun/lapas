@@ -11,6 +11,7 @@
 # Proper default XFCE setup
 # These are initially provided from the homeBase, but players can make permanent changes for themselves
 bi .config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml
+bi .config/xfce4/panel
 bi .config/xfce4/xfconf/xfce-perchannel-xml/thunar.xml
 bi .config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml
 
