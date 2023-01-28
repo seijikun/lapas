@@ -57,6 +57,8 @@ while true; do
 	if [ "$?" == 0 ]; then
 		exec {client[1]}>&-; # close stream
 		wait $client_PID;
+		# remount root filesystem to force-reload overlay lowerdir from server
+		echo "${lapasPassword}" | su root -c "mount -o remount /" 1> /dev/null 2> /dev/null;
 		break;
 	fi
 done
