@@ -23,8 +23,17 @@ b .lapas
 # Environment Setup
 b .bashrc
 
-# Example: Wine games [here, homeBase should not provide user-specific stuff like user.reg]
-#b .wineprefixes/*/drive_c
-#b .wineprefixes/*/dosdevices
-#b .wineprefixes/*/.update-timestamp
-#b .wineprefixes/*/system.reg
+# Wine games [base should not provide user-specific stuff like user.reg]
+# (for Lapas' specific WineManager script)
+b .wineManager/bottles/*/prefix/drive_c
+b .wineManager/bottles/*/prefix/dosdevices
+b .wineManager/bottles/*/prefix/.update-timestamp
+b .wineManager/bottles/*/prefix/system.reg
+b .wineManager/bottles/*/bottle.conf
+b .wineManager/bottles/*/*.jpg
+b .wineManager/bottles/*/*.ico
+b .wineManager/bottles/*/*.svg
+b .wineManager/bottles/*/*.png
+b .wineManager/bottles/*/*.xpm
+b .wineManager/bottles/*/*.shortcut
+b .wineManager/runners

@@ -1,0 +1,336 @@
+#!/bin/bash
+
+# CONSTANTS
+#################
+
+WM_BASE_DIR="$HOME/.wineManager";
+WM_BOTTLES_DIR="${WM_BASE_DIR}/bottles";
+WM_USERDATA_DIR="${WM_BASE_DIR}/userdata";
+WM_PREFIX_DIRNAME="prefix";
+
+# HELPERS
+#################
+function logBold()      { echo "$(tput bold)$@$(tput sgr0)"; }
+function logUnderlined(){ echo "$(tput smul)$@$(tput sgr0)"; }
+function assertArgumentCount() {
+	expectedCnt="$1"; shift;
+	if [ "$#" != "$expectedCnt" ]; then
+		usage;
+		exit 1;
+	fi
+}
+
+function initRepo() {
+	mkdir -p "${WM_BASE_DIR}";
+	mkdir -p "${WM_BOTTLES_DIR}";
+	mkdir -p "${WM_USERDATA_DIR}";
+}
+
+function listBottles() {
+	while IFS= read -r bottlePath; do
+		bottleName=$(basename "$bottlePath");
+		echo "${bottleName}";
+	done <<< $(find "$WM_BOTTLES_DIR" -mindepth 1 -maxdepth 1 -type d);
+}
+function listBottleShortcuts() {
+	assertBottleExists "$1";
+	bottlePath=$(bottleGetPath "$1");
+	while IFS= read -r shortcutFilepath; do
+		shortcutFilename=$(basename "$shortcutFilepath");
+		shortcutName=${shortcutFilename%*.shortcut};
+		echo "$shortcutName";
+	done <<< $(find "$bottlePath" -mindepth 1 -maxdepth 1 -type f -name "*.shortcut");
+}
+
+function bottleInit() {
+	bottleName="$1";
+	prefixPath=$(bottleGetPrefixPath "$bottleName");
+	userSettingsPath="${prefixPath}/drive_c/users/${USER}";
+	newUserSettingsPath=$(bottleGetUserdataPath "$bottleName");
+	selectBottle "$bottleName";
+	# silently init wineprefix (if required or forced)
+	if [ "$2" == "force" ] || [ ! -f "${prefixPath}/user.reg" ]; then
+		OUTPUT=$(WINEDEBUG="-all" WINEPREFIX=$(bottleGetPrefixPath "$bottleName") DISPLAY="" wine hostname 2>&1);
+		if [ $? != 0 ]; then
+			echo "Running wine to upgrade bottle failed:";
+			echo "$OUTPUT";
+			return 1;
+		fi
+	fi
+	# sandbox wineprefix to data path
+	mkdir -p "${newUserSettingsPath}";
+	mkdir -p "${newUserSettingsPath}/AppData";
+	mkdir -p "${newUserSettingsPath}/Contacts";
+	mkdir -p "${newUserSettingsPath}/Desktop";
+	mkdir -p "${newUserSettingsPath}/Documents";
+	mkdir -p "${newUserSettingsPath}/Downloads";
+	mkdir -p "${newUserSettingsPath}/Favorites";
+	mkdir -p "${newUserSettingsPath}/Links";
+	mkdir -p "${newUserSettingsPath}/Music";
+	mkdir -p "${newUserSettingsPath}/Pictures";
+	mkdir -p "${newUserSettingsPath}/Saved Games";
+	mkdir -p "${newUserSettingsPath}/Searches";
+	mkdir -p "${newUserSettingsPath}/Temp";
+	mkdir -p "${newUserSettingsPath}/Videos";
+	if [ ! -L "$userSettingsPath" ]; then
+		rm -rf "$userSettingsPath" || { echo "Userdata isolation failed!"; return 1; };
+		ln -s "$newUserSettingsPath" "$userSettingsPath" || { echo "Userdata isolation failed!"; return 1; };
+	fi
+}
+function bottleGetPath() { echo "${WM_BOTTLES_DIR}/$1"; }
+function bottleGetConfigPath() { echo "${WM_BOTTLES_DIR}/$1/bottle.conf"; }
+function bottleGetShortcutPath() { echo "${WM_BOTTLES_DIR}/$1/$2.shortcut"; }
+function bottleGetPrefixPath() { echo "$(bottleGetPath "$1")/${WM_PREFIX_DIRNAME}"; }
+function bottleGetUserdataPath() { echo "${WM_USERDATA_DIR}/$1"; }
+function assertBottleExists() {
+	if [ -z "$1" ] || [ ! -d $(bottleGetPath "$1") ]; then
+		echo "The bottle you selected (\"$1\") does not seem to exist! Create it first.";
+		exit 1;
+	fi
+}
+function selectBottle() {
+	assertBottleExists "$1";
+	if [ ! -f $(bottleGetConfigPath "$1") ]; then
+		echo "The selected bottle is not valid. It's missing the bottle.conf file!"; exit 1; 
+	fi
+	. $(bottleGetConfigPath "$1");
+	export WINEPREFIX=$(bottleGetPrefixPath "$1");
+}
+function assertShortcutExists() {
+	assertBottleExists "$1";
+	if [ ! -f $(bottleGetShortcutPath "$1" "$2") ]; then
+		echo "The selected shortcut ('$2') does not exist in the selected bottle ('$1')!"; exit 1; 
+	fi
+}
+
+function shortcutFindIcon() {
+	bottlePath=$(bottleGetPath "$1");
+	iconFilePath=$(find "$bottlePath" -maxdepth 1 -mindepth 1 -type f -name "$2.*" | grep -E '.jpg|.ico|.svg|.png|.xpm' | head -n1);
+	if [ -f "$iconFilePath" ]; then echo "$iconFilePath"; return 0; fi
+	find "$bottlePath"  -maxdepth 1 -mindepth 1 -type f -name "icon.*" | grep -E '.jpg|.ico|.svg|.png|.xpm' | head -n1;
+}
+function selectShortcut() {
+	assertShortcutExists "$1" "$2";
+	. $(bottleGetShortcutPath "$1" "$2");
+}
+
+
+
+function usage() {
+echo "$(logBold 'Usage'): $0 [args] <command> [<commandArgs...>]
+$(logUnderlined 'Possible commands are'):
+$(logBold 'ls | list') : List all available bottles
+$(logBold 'ls | list') <bottle> : List all available shortcuts in the selected bottle.
+$(logBold 'create') <bottle> : Create a bottle with the given Id.
+$(logBold 'start') <bottle> <shortcutName> : Start the shortcut with the given name (as defined in the bottle root folder)
+$(logBold 'exec') <bottle> <pathToBinary> : Start the given executable in the prefix of the selected bottle
+$(logBold 'winecfg') <bottle> : Start the winecfg tool in the selected bottle
+$(logBold 'winetricks') <bottle> : Start winetricks for the given bottle.
+
+$(logBold 'updateDesktopFiles') : Create .desktop starter files for all bottle shortcuts
+$(logBold 'updatePrefixes') : Update all prefixes against a new wine version and make sure the folders are setup
+
+$(logUnderlined 'Possible flags are'):
+$(logBold '--debug') : Sets WINEDEBUG=\"warn+all\" to enable wine debug logging
+";
+}
+
+# PARSE CMD OPTS
+#################
+function cmdList() {
+	if [ $# == 0 ]; then
+		while read -r bottleName; do
+			if [ -z "$bottleName" ]; then continue; fi
+			echo "$bottleName";
+			while read -r shortcutName; do
+				if [ -z "$shortcutName" ]; then continue; fi
+				echo "    - ${shortcutName}";
+			done <<< $(listBottleShortcuts "$bottleName");
+		done <<< $(listBottles);
+	elif [ $# == 1 ]; then
+		listBottleShortcuts "$1" || exit 1;
+	else
+		usage;
+	fi
+}
+
+function cmdCreate() {
+	assertArgumentCount 1 "$@";
+	bottleName="$1";
+	bottlePath=$(bottleGetPath "$bottleName");
+	if [ -d "$bottlePath" ]; then
+		echo "The bottle you tried to create ('$bottleName') already exists. Aborting..."; exit 1;
+	fi
+	mkdir -p "${bottlePath}" || { echo "Failed to create Bottle file structure"; exit 1; };
+	mkdir -p "${bottlePath}/prefix" || { echo "Failed to create Bottle file structure"; exit 1; };
+	cat <<"EOF" > "${bottlePath}/bottle.conf"
+export WINEDLLOVERRIDES="mscoree=d;mshtml=d;winemenubuilder.exe=d";
+export WINEARCH="win32";
+EOF
+	cat <<"EOF" > "${bottlePath}/game.shortcut"
+# SHORTCUT CONFIG
+export WM_PWD="drive_c/..."; # relative to inside prefix folder
+export WM_BINARY="drive_c/..."; # relative to inside prefix folder
+export WM_ARGUMENTS=();
+
+# SHORTCUT METADATA
+export WM_SHORTCUT_NAME="Name the Desktop Shortcut will have";
+export WM_SHORTCUT_COMMENT="Comment (or Subtitle) the Desktop shortcut will have";
+
+# EVENT CALLBACKS
+function wmBeforeStart() {
+	echo "Starting program";
+	echo "Prefix: ${WINEPREFIX}";
+	echo "Binary: ${WM_BINARY}";
+	echo "###############################";
+}
+
+function wmAfterStop() {
+	echo "###############################";
+	echo "Program exited.";
+}
+
+EOF
+	bottleInit "$bottleName" "force";
+	echo "Bottle ${bottleName} was created in ${bottlePath}";
+}
+
+function cmdStart() {
+	assertArgumentCount 2 "$@";
+	bottleName="$1";
+	shortcutName="$2";
+	selectBottle "$bottleName";
+	selectShortcut "$bottleName" "$shortcutName";
+	prefixDir=$(bottleGetPrefixPath "$bottleName");
+	userDataPath=$(bottleGetUserdataPath "$bottleName");
+	
+	bottleInit "$bottleName";
+	
+	workDir="${prefixDir}/${WM_PWD}";
+	if [ ! -d "$workDir" ]; then
+		echo "The shortcut's configured working directory [${workDir}] does not exist!"; exit 1;
+	fi
+	binaryPath="${prefixDir}/${WM_BINARY}";
+	if [ ! -f "$binaryPath" ]; then
+		echo "The shortcut's configured binary [${binaryPath}] does not exist!"; exit 1;
+	fi
+	
+	pushd "$workDir" || exit 1 > /dev/null;
+	WM_BOTTLE_NAME="$bottleName" WM_BOTTLE_PREFIX="$prefixDir" WM_SHORTCUT_NAME="$shortcutName" WM_USERDATA_PATH="$userDataPath" \
+		wmBeforeStart || { echo "User-Hook 'BeforeStart' exited with error code $?"; exit 1; };
+	echo "wine ${binaryPath} ${WM_ARGUMENTS[@]}";
+	wine "${binaryPath}" "${WM_ARGUMENTS[@]}";
+	wineserver -w; # wait for all processes in this bottle to exit
+	wmAfterStop;
+	popd > /dev/null;
+}
+
+function cmdExec() {
+	if [[ $# < 2 ]]; then usage; exit 1; fi
+	bottleName="$1"; shift;
+	bottleInit "$bottleName";
+	selectBottle "$bottleName";
+	echo "wine $@";
+	wine "$@" | cat;
+}
+
+function cmdWinecfg() {
+	assertArgumentCount 1 "$@";
+	bottleName="$1";
+	bottleInit "$bottleName";
+	selectBottle "$bottleName";
+	winecfg | cat;
+}
+
+function cmdWinetricks() {
+	assertArgumentCount 1 "$@";
+	bottleName="$1";
+	bottleInit "$bottleName";
+	selectBottle "$bottleName";
+	winetricks | cat;
+}
+
+function cmdUpdateDesktopFiles() {
+	if [ $# == 0 ]; then
+		find "${HOME}/.local/share/applications" -name "wm_*.desktop" -delete;
+		while read -r bottleName; do
+			if [ -z "$bottleName" ]; then continue; fi
+			echo "Exporting: $bottleName";
+			while read -r shortcutName; do
+				if [ -z "$shortcutName" ]; then continue; fi
+				echo -e "    - ${shortcutName}";
+				bash -c "\"$0\" updateDesktopFiles \"${bottleName}\" \"${shortcutName}\"" | cat || exit 1;
+			done <<< $(listBottleShortcuts "$bottleName");
+		done <<< $(listBottles);
+	elif [ $# == 2 ]; then
+		bottleName="$1";
+		shortcutName="$2";
+		selectBottle "$bottleName";
+		selectShortcut "$bottleName" "$shortcutName";
+		shortcutIcon=$(shortcutFindIcon "$bottleName" "$shortcutName");
+		desktopFilePath="${HOME}/.local/share/applications/wm_${bottleName}_${shortcutName}.desktop";
+cat <<EOF > "$desktopFilePath"
+[Desktop Entry]
+Comment=${WM_SHORTCUT_COMMENT}
+Exec=bash -c "${0} start ${bottleName} ${shortcutName}"
+Icon=${shortcutIcon}
+Name=${WM_SHORTCUT_NAME}
+NoDisplay=false
+StartupNotify=true
+Terminal=0
+TerminalOptions=
+Type=Application
+Categories=Game
+EOF
+	else
+		usage; exit 1;
+	fi
+}
+
+function cmdUpdatePrefixes() {
+	if [ $# != 0 ]; then usage; exit 1; fi
+	while read -r bottleName; do
+		if [ -z "$bottleName" ]; then continue; fi
+		echo "Updating: ${bottleName} ...";
+		bottleInit "$bottleName" "force";
+		if [ $? != 0 ]; then
+			echo "Error: Updating bottle failed!";
+		fi
+	done <<< $(listBottles);
+}
+
+
+# CLI
+#################
+initRepo;
+
+# parse optional cmd args
+if [ $# == 0 ]; then usage; exit 1; fi
+VALID_ARGS=$(getopt --long "debug" -- "$0" "$@");
+if [[ $? -ne 0 ]]; then exit 1; fi
+eval set -- "$VALID_ARGS"
+while [ : ]; do
+	case "$1" in
+		--debug)
+			WINEDEBUG="warn+all";
+			shift;;
+		--)
+			shift;
+			break;;
+	esac
+done
+
+# parse and switch to supported commands
+if [ $# == 0 ]; then usage; exit 1; fi
+COMMAND="$1"; shift
+case "$COMMAND" in
+	ls | list)			cmdList "$@";;
+	create)				cmdCreate "$@";;
+	start)				cmdStart "$@";;
+	exec)				cmdExec "$@";;
+	winecfg)			cmdWinecfg "$@";;
+	winetricks)			cmdWinetricks "$@";;
+	updateDesktopFiles)	cmdUpdateDesktopFiles "$@";;
+	updatePrefixes)		cmdUpdatePrefixes "$@";;
+	*)					usage; exit 1;;
+esac
