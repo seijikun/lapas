@@ -16,21 +16,35 @@ function handleClient() {
         echo "0 Auth Ok";
 
         1>&2 echo "Authentication successful. Waiting for command...";
-        read COMMAND || return 1;
+        read -t 5 COMMAND || return 1;
+        if [ "$COMMAND" == "noop" ]; then
+                1>&2 echo "Handling: noop";
+                echo "0 Success"; return 0; # mostly meant for auth testing
+        fi
         if [ "$COMMAND" == "addUser" ]; then
                 1>&2 echo "Handling: addUser";
-                read newUsername || return 1;
-                read newPassword || return 1;
+                read -t 5 newUsername || return 1;
+                read -t 5 newPassword || return 1;
                 if [ "$newPassword" == "" ]; then
                         echo "3 Command Failed (empty password not allowed)"; return 1;
                 fi
-                ADDUSER_LOG=$($(dirname "$0")/addUser.sh "$newUsername" "$newPassword" 2>&1);
-                if [ $? != 0 ]; then
-                        1>&2 echo "Adding user ${newUsername} failed: ${ADDUSER_LOG}";
+                opSuccess=0;
+                for attemptIdx in {1..3}; do
+                        ADDUSER_LOG=$($(dirname "$0")/addUser.sh "$newUsername" "$newPassword" 2>&1);
+                        if [ $? == 0 ]; then
+                                opSuccess=1;
+                                break;
+                        fi
+                        1>&2 echo "addUser (Attempt $attemptIdx / 3) failed: ${ADDUSER_LOG}";
+                        sleep 1; # short sleep before we try again
+                done
+                if [ $opSuccess == 1 ]; then
+                        1>&2 echo "Added user: ${newUsername}";
+                        echo "0 Success"; return 0;
+                else
+                        1>&2 echo "Adding user ${newUsername} failed";
                         echo "3 Command Failed (${ADDUSER_LOG})"; return 1;
                 fi
-                1>&2 echo "Added user: ${newUsername}";
-                echo "0 Success"; return 0;
         else
                 1>&2 echo "Received unknown command: ${COMMAND}";
                 echo "2 Unknown command"; return 1;
