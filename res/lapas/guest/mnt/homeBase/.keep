@@ -21,6 +21,7 @@ b .lapas
 
 # Environment Setup
 b .bashrc
+b .bash_profile
 
 # Wine games [base should not provide user-specific stuff like user.reg]
 # (for Lapas' specific WineManager script)

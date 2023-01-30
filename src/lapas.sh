@@ -234,7 +234,7 @@ logSubsection "Configuring Guest Kernel..."
 # Use default parameters for new config options
 "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" bash -c "cd ${KERNEL_DIR} && make olddefconfig" || exit 1;
 while true; do
-	uiYesNo "Kernel Config" "[Expert Only]\nI configured your guest kernel with my config. Do you want to make any further changes to the config before I start compiling?" resultSpawnMenuconfig;
+	uiYesNo "Kernel Config" "[Expert Only: If unsure, press No]\nI configured your guest kernel with my config. Do you want to make any further changes to the config before I start compiling?" resultSpawnMenuconfig;
 	if [ "$resultSpawnMenuconfig" == "no" ]; then
 		break;
 	fi
