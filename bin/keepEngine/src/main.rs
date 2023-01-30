@@ -20,13 +20,12 @@ impl Pattern {
         pattern_regex = pattern_regex
             .replace("/**/", "/.*/")
             .replace("/*/", "/[^/]+/");
+        assert!(pattern_regex.contains("**") == false, "Invalid Pattern. Doulbe-star is only allowed between slashes: /**/");
+
         if pattern_regex.ends_with("/*") {
             pattern_regex.replace_range(pattern_regex.len()-2.., "/[^/]+");
         }
         pattern_regex = pattern_regex.replace("*", "[^/]*");
-        if pattern_regex.contains("*") || pattern_regex.ends_with("/") {
-            panic!("Invalid Pattern: {}", pattern_str);
-        }
 
         pattern_regex = format!("^{}$", pattern_regex);
         Self {
@@ -189,7 +188,6 @@ fn main() {
                 .action(ArgAction::SetTrue)
         )
         .get_matches();
-    println!("{:?}", matches);
 
     let mode = matches.get_one::<String>("mode").unwrap();
     let keep_rules_file = matches.get_one::<PathBuf>("keepRulesFile").unwrap();

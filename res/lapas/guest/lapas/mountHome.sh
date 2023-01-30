@@ -45,7 +45,7 @@ if [ "$PAM_USER" != "lapas" ] && [ "$PAM_TYPE" == "open_session" ]; then
 	fi
 	if [ ! -f "${USER_IMAGE_MOUNTDIR}/upper/.keepApplied" ]; then
 		# Cleanup has not yet run on this boot, run it now
-		"/lapas/keepEngine.py" --dryrun user "${USER_BASE}/.keep" "${USER_IMAGE_MOUNTDIR}/upper" || exit 1;
+		"/lapas/keepEngine" --dryrun user "${USER_BASE}/.keep" "${USER_IMAGE_MOUNTDIR}/upper" || exit 1;
 		# if cleanup ran successfully, create a temporary marker file .keepApplied that will be
 		# deleted upon next home mount (after a reboot).
 		touch "${USER_IMAGE_MOUNTDIR}/upper/.keepApplied";
