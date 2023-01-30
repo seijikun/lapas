@@ -6,6 +6,8 @@
 WM_BASE_DIR="$HOME/.wineManager";
 WM_BOTTLES_DIR="${WM_BASE_DIR}/bottles";
 WM_USERDATA_DIR="${WM_BASE_DIR}/userdata";
+WM_RUNNERS_DIR="${WM_BASE_DIR}/runners";
+WM_HELPERS_DIR="${WM_BASE_DIR}/helpers";
 WM_PREFIX_DIRNAME="prefix";
 
 # HELPERS
@@ -24,7 +26,25 @@ function initRepo() {
 	mkdir -p "${WM_BASE_DIR}";
 	mkdir -p "${WM_BOTTLES_DIR}";
 	mkdir -p "${WM_USERDATA_DIR}";
+	mkdir -p "${WM_HELPERS_DIR}";
+	mkdir -p "${WM_HELPERS_DIR}";
+	echo "This folder contains helper scripts with functions in them that
+will be imported and are available to you in your game/shortcut hooks.
+You should prefix all methods in here with helper and the helper's name.
+So if the helper-script is called messagebox.sh, all contained methods should follow
+something like the following naming scheme:
+helperMessageboxMethodA
+helperMessageboxMethodB
+to avoid naming collisions" > "${WM_HELPERS_DIR}/README.txt";
+	
+	pushd ${WM_HELPERS_DIR} > /dev/null || exit 1;
+	for helperScript in *.sh; do
+		echo "Importing Helper: ${helperScript}";
+		. "$helperScript";
+	done
+	popd > /dev/null || exit 1;
 }
+
 
 function listBottles() {
 	while IFS= read -r bottlePath; do
@@ -95,6 +115,16 @@ function selectBottle() {
 	fi
 	. $(bottleGetConfigPath "$1");
 	export WINEPREFIX=$(bottleGetPrefixPath "$1");
+	if [ "$WM_RUNTIME" != "" ]; then
+		runnerPath="${WM_RUNNERS_DIR}/${WM_RUNTIME}";
+		if [ ! -d "$runnerPath" ]; then
+			echo "Requested runner: ${WM_RUNTIME} does not exist. Please provide it.";
+			exit 1;
+		fi
+		echo "Using non-system Runner: ${WM_RUNTIME}";
+		export PATH="${runnerPath}/bin:${PATH}";
+		export LD_LIBRARY_PATH="${runnerPath}/lib:${runnerPath}/lib64";
+	fi
 }
 function assertShortcutExists() {
 	assertBottleExists "$1";
@@ -166,6 +196,8 @@ function cmdCreate() {
 	cat <<"EOF" > "${bottlePath}/bottle.conf"
 export WINEDLLOVERRIDES="mscoree=d;mshtml=d;winemenubuilder.exe=d";
 export WINEARCH="win32";
+#export WINEDEBUG="warn+all";
+#export WM_RUNTIME="lutris-GE-Proton7-35-x86_64"; # use special runtime from <runners> folder
 EOF
 	cat <<"EOF" > "${bottlePath}/game.shortcut"
 # SHORTCUT CONFIG

@@ -37,3 +37,4 @@ b .wineManager/bottles/*/*.png
 b .wineManager/bottles/*/*.xpm
 b .wineManager/bottles/*/*.shortcut
 b .wineManager/runners
+b .wineManager/helpers
