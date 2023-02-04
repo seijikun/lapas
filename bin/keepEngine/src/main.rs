@@ -142,9 +142,8 @@ fn apply_keep(args: &CliArgs, rules: &Rules) {
         let mut is_empty = true;
 
         for child in fs::read_dir(&cur_path)?.filter_map(|f| f.ok()) {
-            let metadata = child.metadata()?;
             let action = rules.get_action(args.mode, &args.folder, &child.path());
-            if metadata.is_dir() {
+            if child.file_type()?.is_dir() {
                 let child_empty = traverse(args, rules, child.path())?;
                 is_empty &= child_empty;
                 if child_empty && matches!(action, FileAction::Delete) {
