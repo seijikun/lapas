@@ -1,40 +1,77 @@
-# This file contains a list of patterns for files/folders
-# Specify folders >without< trailing slashes!
-# Line prefix patterns:
-# 'b ' = homeBase >always< provides these file
-#                       Not deleted during homeBase cleanup (every other file is deleted!)
-#                       User-Changes to this file are rolled back (deleted from user overlay)
-# 'bi ' = homeBase >initially< provides these files
-#                       Not deleted during homeBase cleanup
-#                       User-Changes are kept (NOT deleted from user overlay)
+# The home folder of a user consists of two layers. The base layer and the user layer.
+# The base layer is below the user layer and contains data that all users share.
+# Generally, users can make changes to files in the base layer.
+# Those changes are specific to the user as they are layered on top of base to "overshadow" it.
+# 
+# ##############      #############
+# # User Layer # -->  # User Mask # --|   ######################
+# ##############      #############   --> # Cleaned User Layer #
+#                                         #--------------------#
+# ##############      #############   --> # Cleaned Base Layer #
+# # Base Layer # -->  # Base Mask # --|   ######################
+# ##############      #############
+# 
+# Before the two layers are put together, a cleanup process runs across both of them.
+# This file contains an ordered list of rules for files and folders, to decide
+# whether they should be kept or deleted during cleanup in the corresponding layers (base / user)
+# Essentially, the purpose of this file is thus to describe the two masks as shown in the diagram.
+# You can compare it to a .gitignore file
+#
+# Each rule consist of a match-pattern and the two corresponding actions for the two layers:
+# - base defines what to do with matching files from the base layer
+# - user defines what to do with matching files from the user layer
+# Rules have the following format:
+# >> base:{keep,delete} user:{keep,delete} {pattern} <<
+# They MUST NOT contain comments on the same line!
+#
+# Each rule has the power to "overrule" all of its predecessors if it matches the same file again
+# It is thus possible to first state a more general rule, then create exceptions for it
 
-# Proper default XFCE setup
-# These are initially provided from the homeBase, but players can make permanent changes for themselves
-bi .config/xfce4/xfconf/xfce-perchannel-xml
-bi .config/xfce4/panel
 
-# Application starters
-b .local/share/applications
 
-# This folder contains lapas specific stuff and is >always< supplied from the homeBase.
-b .lapas
+# Default rule - all following rules are basically exceptions changing this default behavior
+# --------------------------------------------------------
+# Per default, delete everything from base (you have to explicitly mark files that the base layer brings to the table)
+# Per default, keep everything from user (you have to explicitly mark files that users must never make permanent changes to)
+base:delete user:keep **
+
+
+# Proper default XFCE setup for new users
+# --------------------------------------------------------
+# Initially provided by base
+# But users can make permanent changes to them
+base:keep user:keep .config/xfce4/xfconf/xfce-perchannel-xml
+base:keep user:keep .config/xfce4/panel
+
+
+# Application starters (desktop files)
+# --------------------------------------------------------
+# Always provided by base
+# User-specific changes are forbidden and rolled back on any login
+base:keep user:delete .local/share/applications
+
+
+# Folder with LAPAS-Distribution specific stuff like scripts
+# --------------------------------------------------------
+# Always provided by base
+# User-specific changes are forbidden and rolled back on any login
+base:keep user:delete .lapas
+
 
 # Environment Setup
-b .bashrc
-b .bash_profile
+# --------------------------------------------------------
+# Always provided by base
+# User-specific changes are forbidden and rolled back on any login
+base:keep user:delete .bashrc
+base:keep user:delete .bash_profile
 
-# Wine games [base should not provide user-specific stuff like user.reg]
-# (for Lapas' specific WineManager script)
-b .wineManager/bottles/*/prefix/drive_c
-b .wineManager/bottles/*/prefix/dosdevices
-b .wineManager/bottles/*/prefix/.update-timestamp
-b .wineManager/bottles/*/prefix/system.reg
-b .wineManager/bottles/*/bottle.conf
-b .wineManager/bottles/*/*.jpg
-b .wineManager/bottles/*/*.ico
-b .wineManager/bottles/*/*.svg
-b .wineManager/bottles/*/*.png
-b .wineManager/bottles/*/*.xpm
-b .wineManager/bottles/*/*.shortcut
-b .wineManager/runners
-b .wineManager/helpers
+
+# LAPAS WineManager
+# --------------------------------------------------------
+# The wine bottles are always provided by base - users can only overwrite userspecific files, such as
+# the user registry and userdata (that lapasWineManager mounts to outside the wine prefix)
+base:keep user:delete .wineManager
+# user specific files
+base:delete user:keep .wineManager/bottles/*/prefix/user.reg
+base:delete user:keep .wineManager/bottles/*/prefix/userdef.reg
+base:delete user:keep .wineManager/userdata

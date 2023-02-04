@@ -9,3 +9,4 @@ edition = "2021"
 [dependencies]
 clap = "4"
 regex = "1"
+anyhow = "1"

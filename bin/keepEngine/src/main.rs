@@ -1,5 +1,6 @@
-use std::{path::{PathBuf, Path}, fs::{File, self, Metadata}, io::{BufRead, BufReader, self}};
+use std::{path::{PathBuf, Path}, fs::{File, self}, io::{BufRead, BufReader, self}, str::FromStr};
 
+use anyhow::{anyhow, Result};
 use clap::{Arg, ArgAction, Command};
 use regex::Regex;
 
@@ -9,150 +10,160 @@ enum CleanupMode {
     CleanupUser
 }
 
-#[derive(Debug)]
-struct Pattern {
-    pattern: regex::Regex
+#[derive(Clone, Copy, Debug)]
+enum FileAction {
+    Delete,
+    Keep
 }
-impl Pattern {
-    pub fn from_str(pattern_str: &str) -> Self {
-        let mut pattern_regex = pattern_str.to_owned();
+impl FromStr for FileAction {
+    type Err = anyhow::Error;
 
-        pattern_regex = pattern_regex
-            .replace("/**/", "/.*/")
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "keep" => Ok(FileAction::Keep),
+            "delete" => Ok(FileAction::Delete),
+            _ => Err(anyhow!("Invalid rule action"))
+        }
+    }
+}
+
+#[derive(Debug)]
+struct Rule { pattern: Regex, base_action: FileAction, user_action: FileAction }
+impl Rule {
+    pub fn regex_from_pattern_str(pattern_str: &str) -> Result<Regex> {
+        if pattern_str.ends_with("/") {
+            return Err(anyhow!("Invalid pattern! Rules followed with a slash won't match anything: '{}'", pattern_str));
+        }
+
+        let mut pattern_regex = pattern_str.to_owned()
+            .replace("/**/", "/.+/")
             .replace("/*/", "/[^/]+/");
-        assert!(pattern_regex.contains("**") == false, "Invalid Pattern. Doulbe-star is only allowed between slashes: /**/");
+        if pattern_regex.ends_with("/**") {
+            pattern_regex.replace_range(pattern_regex.len()-2.., ".+");
+        }
+        if pattern_regex.starts_with("**/") || pattern_regex == "**" {
+            pattern_regex.replace_range(0..2, ".+");
+        }
 
         if pattern_regex.ends_with("/*") {
-            pattern_regex.replace_range(pattern_regex.len()-2.., "/[^/]+");
+            pattern_regex.replace_range(pattern_regex.len()-1.., "[^/]+");
         }
+        if pattern_regex.starts_with("*/") || pattern_regex == "*" {
+            pattern_regex.replace_range(0..1, "[^/]+");
+        }
+
+        if pattern_regex.contains("**") {
+            return Err(anyhow!("Invalid Pattern. Double-stars are only allowed in isolation between path separators: {}", pattern_str));
+        }
+
         pattern_regex = pattern_regex.replace("*", "[^/]*");
 
         pattern_regex = format!("^{}$", pattern_regex);
-        Self {
-            pattern: Regex::new(&pattern_regex).expect(&format!("Failed to parse pattern: {}", pattern_regex))
-        }
+        Ok(Regex::new(&pattern_regex)?)
     }
+
     pub fn matches(&self, path: &Path) -> bool {
         self.pattern.is_match(path.to_str().unwrap())
     }
 }
 
-enum PatternAction {
-    Delete,
-    DescendAndDeleteIfEmpty,
-    DescendAndKeep,
-    Keep
-}
-
 #[derive(Debug)]
-struct Patterns {
-    base_always: Vec<Pattern>,
-    base_initially: Vec<Pattern>
+struct Rules {
+    rules: Vec<Rule>
 }
-impl Patterns {
-    fn match_any(patterns: &Vec<Pattern>, path: &Path) -> bool {
-        for pattern in patterns {
-            if pattern.matches(path) { return true; }
-        }
-        false
+impl Rules {
+    pub fn new() -> Self {
+        Self { rules: vec![] }
+    }
+    pub fn add_rule_from_str(&mut self, rule_line: &str) -> Result<()> {
+        let rule_segments: Vec<_> = rule_line.splitn(3, ' ').collect();
+        assert!(rule_segments.len() == 3, "Invalid Rule: {}", rule_line);
+
+        let base_action_str = if rule_segments[0].starts_with("base:") { rule_segments[0] } else { rule_segments[1] };
+        let user_action_str = if rule_segments[0].starts_with("user:") { rule_segments[0] } else { rule_segments[1] };
+        assert!(base_action_str.starts_with("base:") && user_action_str.starts_with("user:"), "Invalid Rule: {}", rule_line);
+        let base_action = base_action_str[5..].parse::<FileAction>()?;
+        let user_action = user_action_str[5..].parse::<FileAction>()?;
+
+        let file_pattern = Rule::regex_from_pattern_str(rule_segments[2])?;
+        // So that a normal rule can also affect folders recursively, we simply create it by applying the
+        // pattern with a programatically appended allmatch /**
+        let folder_pattern = Rule::regex_from_pattern_str(&format!("{}/**", rule_segments[2]))?;
+
+        self.rules.push(Rule { pattern: file_pattern, base_action, user_action });
+        self.rules.push(Rule { pattern: folder_pattern, base_action, user_action });
+
+        Ok(())
     }
 
-    pub fn get_action(&self, mode: CleanupMode, root_path: &Path, item: &Path, item_meta: &Metadata) -> PatternAction {
-        let rel_path = item.strip_prefix(root_path).expect("Path error! Descent path has to be child in root");
-        let is_dir = item_meta.is_dir();
-        match mode {
-            CleanupMode::CleanupBase => {
-                // patterns describe what to keep in base
-                if Patterns::match_any(&self.base_always, rel_path) { return PatternAction::Keep; }
-                if Patterns::match_any(&self.base_initially, rel_path) { return PatternAction::Keep; }
-                if is_dir {
-                    return PatternAction::DescendAndDeleteIfEmpty;
-                } else {
-                    return PatternAction::Delete;
-                }
-            },
-            CleanupMode::CleanupUser => {
-                // base always patterns describe what is always provided by base, so has to be deleted in user
-                if Patterns::match_any(&self.base_always, rel_path) { return PatternAction::Delete; }
-                if is_dir {
-                    // continue on and see whether there is anything in the folder that is marked base-always
-                    return PatternAction::DescendAndKeep;
-                } else {
-                    return PatternAction::Keep; // keep everything else in user dir
-                }
+    pub fn get_action(&self, mode: CleanupMode, root_path: &Path, item: &Path) -> FileAction {
+        let mut action = FileAction::Keep;
+
+        for rule in &self.rules {
+            let rel_path = item.strip_prefix(root_path).expect("Path error! Descent path has to be child in root");
+            if rule.matches(rel_path) {
+                action = match mode {
+                    CleanupMode::CleanupBase => rule.base_action,
+                    CleanupMode::CleanupUser => rule.user_action,
+                };
             }
         }
+
+        action
     }
 }
 
-
-
-
-fn parse_rules(keep_file: &Path) -> Patterns {
+fn parse_rules(keep_file: &Path) -> Result<Rules> {
     let file = File::open(keep_file).expect("Failed to open keep file!");
     let reader = BufReader::new(file);
 
-    let mut base_always = Vec::new();
-    let mut base_initially = Vec::new();
-
-    // default patterns
-    base_always.push(Pattern::from_str(".keep"));
+    let mut rules = Rules::new();
 
     for line in reader.lines() {
         let line = line.expect("Failed to read keep file");
-        if line.starts_with("b ") {
-            base_always.push(Pattern::from_str(&line[2..]));
-        } else if line.starts_with("bi ") {
-            base_initially.push(Pattern::from_str(&line[3..]));
+        if !line.starts_with("#") && line.trim() != "" {
+            rules.add_rule_from_str(&line)?;
         }
     }
 
-    Patterns { base_always, base_initially }
+    // enforced default rules
+    rules.add_rule_from_str("base:keep user:delete .keep")?;
+
+    Ok(rules)
 }
 
-fn apply_keep(mode: CleanupMode, dryrun: bool, patterns: &Patterns, root_path: PathBuf) {
+fn apply_keep(mode: CleanupMode, dryrun: bool, rules: &Rules, root_path: PathBuf) {
     if !root_path.is_dir() {
         panic!("Given folder either does not exist or is actually a file.");
     }
 
-    fn traverse(mode: CleanupMode, dryrun: bool, patterns: &Patterns, root_path: &Path, cur_path: PathBuf) -> io::Result<bool> {
+    // depth first
+    fn traverse(mode: CleanupMode, dryrun: bool, rules: &Rules, root_path: &Path, cur_path: PathBuf) -> io::Result<bool> {
         let mut is_empty = true;
 
         for child in fs::read_dir(&cur_path)?.filter_map(|f| f.ok()) {
             let metadata = child.metadata()?;
-            match patterns.get_action(mode, root_path, &child.path(), &metadata) {
-                PatternAction::Delete => {
-                    if metadata.is_dir() {
-                        println!("[DELETE] Folder {}", child.path().display());
-                        if !dryrun { fs::remove_dir_all(&child.path())?; }
-                    } else {
-                        println!("[DELETE] File {}", child.path().display());
-                        if !dryrun { fs::remove_file(&child.path())?; }
-                    }
-                },
-                PatternAction::DescendAndDeleteIfEmpty => {
-                    let child_empty = traverse(mode, dryrun, patterns, root_path, child.path())?;
-                    if child_empty {
-                        println!("[DELETE] Empty Folder {}", child.path().display());
-                        if !dryrun { fs::remove_dir(&child.path())?; }
-                    } else {
-                        is_empty = false;
-                    }
-                },
-                PatternAction::DescendAndKeep => {
-                    traverse(mode, dryrun, patterns, root_path, child.path())?;
+            let action = rules.get_action(mode, root_path, &child.path());
+            if metadata.is_dir() {
+                let child_empty = traverse(mode, dryrun, rules, root_path, child.path())?;
+                is_empty &= child_empty;
+                if child_empty && matches!(action, FileAction::Delete) {
+                    println!("[DELETE] Folder {}", child.path().display());
+                    if !dryrun { let _ = fs::remove_dir(child.path()); }
+                }
+            } else {
+                if matches!(action, FileAction::Delete) {
+                    println!("[DELETE] File {}", child.path().display());
+                    if !dryrun { let _ = fs::remove_file(child.path()); }
+                } else {
                     is_empty = false;
-                },
-                PatternAction::Keep => {
-                    is_empty = false;
-                },
+                }
             }
         }
-
         Ok(is_empty)
     }
 
-    let _ = traverse(mode, dryrun, patterns, root_path.as_path(), root_path.clone());
+    let _ = traverse(mode, dryrun, rules, root_path.as_path(), root_path.clone());
 }
 
 fn main() {
@@ -199,6 +210,6 @@ fn main() {
         "user" => CleanupMode::CleanupUser,
         _ => unreachable!()
     };
-    let patterns = parse_rules(&keep_rules_file);
-    apply_keep(mode, dryrun, &patterns, folder.clone());
+    let rules = parse_rules(&keep_rules_file).unwrap();
+    apply_keep(mode, dryrun, &rules, folder.clone());
 }
