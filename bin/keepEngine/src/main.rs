@@ -1,13 +1,13 @@
 use std::{path::{PathBuf, Path}, fs::{File, self}, io::{BufRead, BufReader, self}, str::FromStr};
 
 use anyhow::{anyhow, Result};
-use clap::{Arg, ArgAction, Command};
+use clap::{ValueEnum, Parser};
 use regex::Regex;
 
-#[derive(Clone, Copy)]
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
 enum CleanupMode {
-    CleanupBase,
-    CleanupUser
+    Base,
+    User
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -103,8 +103,8 @@ impl Rules {
             let rel_path = item.strip_prefix(root_path).expect("Path error! Descent path has to be child in root");
             if rule.matches(rel_path) {
                 action = match mode {
-                    CleanupMode::CleanupBase => rule.base_action,
-                    CleanupMode::CleanupUser => rule.user_action,
+                    CleanupMode::Base => rule.base_action,
+                    CleanupMode::User => rule.user_action,
                 };
             }
         }
@@ -132,29 +132,29 @@ fn parse_rules(keep_file: &Path) -> Result<Rules> {
     Ok(rules)
 }
 
-fn apply_keep(mode: CleanupMode, dryrun: bool, rules: &Rules, root_path: PathBuf) {
-    if !root_path.is_dir() {
+fn apply_keep(args: &CliArgs, rules: &Rules) {
+    if !args.folder.is_dir() {
         panic!("Given folder either does not exist or is actually a file.");
     }
 
     // depth first
-    fn traverse(mode: CleanupMode, dryrun: bool, rules: &Rules, root_path: &Path, cur_path: PathBuf) -> io::Result<bool> {
+    fn traverse(args: &CliArgs, rules: &Rules, cur_path: PathBuf) -> io::Result<bool> {
         let mut is_empty = true;
 
         for child in fs::read_dir(&cur_path)?.filter_map(|f| f.ok()) {
             let metadata = child.metadata()?;
-            let action = rules.get_action(mode, root_path, &child.path());
+            let action = rules.get_action(args.mode, &args.folder, &child.path());
             if metadata.is_dir() {
-                let child_empty = traverse(mode, dryrun, rules, root_path, child.path())?;
+                let child_empty = traverse(args, rules, child.path())?;
                 is_empty &= child_empty;
                 if child_empty && matches!(action, FileAction::Delete) {
-                    println!("[DELETE] Folder {}", child.path().display());
-                    if !dryrun { let _ = fs::remove_dir(child.path()); }
+                    if args.verbose { println!("[DELETE] Folder {}", child.path().display()); }
+                    if !args.dryrun { let _ = fs::remove_dir(child.path()); }
                 }
             } else {
                 if matches!(action, FileAction::Delete) {
-                    println!("[DELETE] File {}", child.path().display());
-                    if !dryrun { let _ = fs::remove_file(child.path()); }
+                    if args.verbose { println!("[DELETE] File {}", child.path().display()); }
+                    if !args.dryrun { let _ = fs::remove_file(child.path()); }
                 } else {
                     is_empty = false;
                 }
@@ -163,53 +163,33 @@ fn apply_keep(mode: CleanupMode, dryrun: bool, rules: &Rules, root_path: PathBuf
         Ok(is_empty)
     }
 
-    let _ = traverse(mode, dryrun, rules, root_path.as_path(), root_path.clone());
+    let _ = traverse(args, rules, args.folder.clone());
+}
+
+#[derive(Debug, Parser)]
+#[command(name = "keepEngine")]
+#[command(author, version, about)]
+struct CliArgs {
+    /// Mode of operation. Either applies the keep rules to
+    #[arg(value_name = "MODE", value_enum)]
+    mode: CleanupMode,
+    /// Path to the .keep file that should be applied
+    #[arg(value_name = "KEEP_RULES_FILE")]
+    keep_file_path: PathBuf,
+    /// Folder that the rules should be applied to (either base user or normal user home)
+    #[arg(value_name = "FOLDER")]
+    folder: PathBuf,
+
+    /// If this flag is set, the engine will run in test-mode
+    #[arg(long, default_value_t = false)]
+    dryrun: bool,
+    /// If this flag is set, every delete operation will be logged to the console
+    #[arg(long, default_value_t = false)]
+    verbose: bool
 }
 
 fn main() {
-    let matches = Command::new("keepEngine")
-        .about("Keep Engine parses the base user\'s .keep file and deletes files accordingly")
-        .version("0.1")
-        .author("Markus Ebner")
-        .arg(
-            Arg::new("mode")
-                .required(true)
-                .help("Mode of operation. Either applies the keep rules to")
-                .action(ArgAction::Set)
-                .value_parser(["base", "user"])
-        )
-        .arg(
-            Arg::new("keepRulesFile")
-                .help("Path to the .keep file that should be applied")
-                .required(true)
-                .value_parser(clap::value_parser!(PathBuf))
-                .action(ArgAction::Set)
-        )
-        .arg(
-            Arg::new("folder")
-            .help("Folder that the rules should be applied to (either base user or normal user home)")
-            .required(true)
-            .value_parser(clap::value_parser!(PathBuf))
-            .action(ArgAction::Set)
-        )
-        .arg(
-            Arg::new("dryrun")
-                .long("dryrun")
-                .help("If this flag is set, the engine will run in test-mode")
-                .action(ArgAction::SetTrue)
-        )
-        .get_matches();
-
-    let mode = matches.get_one::<String>("mode").unwrap();
-    let keep_rules_file = matches.get_one::<PathBuf>("keepRulesFile").unwrap();
-    let folder = matches.get_one::<PathBuf>("folder").unwrap();
-    let dryrun = matches.get_flag("dryrun");
-
-    let mode = match mode.as_str() {
-        "base" => CleanupMode::CleanupBase,
-        "user" => CleanupMode::CleanupUser,
-        _ => unreachable!()
-    };
-    let rules = parse_rules(&keep_rules_file).unwrap();
-    apply_keep(mode, dryrun, &rules, folder.clone());
+    let args = CliArgs::parse();
+    let rules = parse_rules(&args.keep_file_path).unwrap();
+    apply_keep(&args, &rules);
 }
