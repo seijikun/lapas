@@ -184,7 +184,7 @@ runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_
 	mkinitcpio mkinitcpio-nfs-utils linux-firmware nfs-utils \
 	xfce4 xfce4-goodies gvfs xorg-server lightdm lightdm-gtk-greeter pulseaudio pulseaudio-alsa pavucontrol alsa-oss \
 	firefox geany file-roller openbsd-netcat \
-	wine-staging winetricks zenity \
+	wine-staging winetricks zenity autorandr \
 	lib32-libxcomposite lib32-libpulse || exit 1;
 
 

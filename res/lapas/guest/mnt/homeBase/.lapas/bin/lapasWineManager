@@ -28,20 +28,13 @@ function initRepo() {
 	mkdir -p "${WM_USERDATA_DIR}";
 	mkdir -p "${WM_HELPERS_DIR}";
 	mkdir -p "${WM_HELPERS_DIR}";
-	echo "This folder contains helper scripts with functions in them that
-will be imported and are available to you in your game/shortcut hooks.
-You should prefix all methods in here with helper and the helper's name.
-So if the helper-script is called messagebox.sh, all contained methods should follow
-something like the following naming scheme:
-helperMessageboxMethodA
-helperMessageboxMethodB
-to avoid naming collisions" > "${WM_HELPERS_DIR}/README.txt";
 	
 	pushd ${WM_HELPERS_DIR} > /dev/null || exit 1;
-	for helperScript in *.sh; do
+	while IFS= read -r helperScript; do
+		if [ -z "$helperScript" ]; then continue; fi
 		echo "Importing Helper: ${helperScript}";
 		. "$helperScript";
-	done
+	done <<< $(find -type f -name "*.sh")
 	popd > /dev/null || exit 1;
 }
 
@@ -217,9 +210,17 @@ function wmBeforeStart() {
 	echo "###############################";
 }
 
+# Called after the initially started game process exited
+# This would e.g. be called for games with a Launcher, after the Launcher started the game then exited.
+function wmAfterInitialProcessExit() {
+	echo "###############################";
+	echo "Initial Wine Process exited.";
+}
+
 function wmAfterStop() {
 	echo "###############################";
 	echo "Program exited.";
+	helperResolutionRestore;
 }
 
 EOF
@@ -233,6 +234,7 @@ function cmdStart() {
 	shortcutName="$2";
 	selectBottle "$bottleName";
 	selectShortcut "$bottleName" "$shortcutName";
+	bottleDir=$(bottleGetPath "$bottleName");
 	prefixDir=$(bottleGetPrefixPath "$bottleName");
 	userDataPath=$(bottleGetUserdataPath "$bottleName");
 	
@@ -248,12 +250,15 @@ function cmdStart() {
 	fi
 	
 	pushd "$workDir" || exit 1 > /dev/null;
-	WM_BOTTLE_NAME="$bottleName" WM_BOTTLE_PREFIX="$prefixDir" WM_SHORTCUT_NAME="$shortcutName" WM_USERDATA_PATH="$userDataPath" \
+	WM_BOTTLE_NAME="$bottleName" WM_BOTTLE_PATH="$bottleDir" WM_BOTTLE_PREFIX="$prefixDir" WM_SHORTCUT_NAME="$shortcutName" WM_USERDATA_PATH="$userDataPath" \
 		wmBeforeStart || { echo "User-Hook 'BeforeStart' exited with error code $?"; exit 1; };
 	echo "wine ${binaryPath} ${WM_ARGUMENTS[@]}";
 	wine "${binaryPath}" "${WM_ARGUMENTS[@]}";
+	WM_BOTTLE_NAME="$bottleName" WM_BOTTLE_PATH="$bottleDir" WM_BOTTLE_PREFIX="$prefixDir" WM_SHORTCUT_NAME="$shortcutName" WM_USERDATA_PATH="$userDataPath" \
+		wmAfterInitialProcessExit || { echo "User-Hook 'AfterInitialProcessExit' exited with error code $?"; exit 1; };
 	wineserver -w; # wait for all processes in this bottle to exit
-	wmAfterStop;
+	WM_BOTTLE_NAME="$bottleName" WM_BOTTLE_PATH="$bottleDir" WM_BOTTLE_PREFIX="$prefixDir" WM_SHORTCUT_NAME="$shortcutName" WM_USERDATA_PATH="$userDataPath" \
+		wmAfterStop || { echo "User-Hook 'AfterStop' exited with error code $?"; exit 1; };
 	popd > /dev/null;
 }
 
@@ -279,7 +284,7 @@ function cmdWinetricks() {
 	bottleName="$1";
 	bottleInit "$bottleName";
 	selectBottle "$bottleName";
-	winetricks | cat;
+	winetricks -q | cat;
 }
 
 function cmdUpdateDesktopFiles() {
@@ -291,7 +296,7 @@ function cmdUpdateDesktopFiles() {
 			while read -r shortcutName; do
 				if [ -z "$shortcutName" ]; then continue; fi
 				echo -e "    - ${shortcutName}";
-				bash -c "\"$0\" updateDesktopFiles \"${bottleName}\" \"${shortcutName}\"" | cat || exit 1;
+				bash -c "\"$0\" updateDesktopFiles \"${bottleName}\" \"${shortcutName}\"" > /dev/null || exit 1;
 			done <<< $(listBottleShortcuts "$bottleName");
 		done <<< $(listBottles);
 	elif [ $# == 2 ]; then
@@ -366,3 +371,4 @@ case "$COMMAND" in
 	updatePrefixes)		cmdUpdatePrefixes "$@";;
 	*)					usage; exit 1;;
 esac
+
