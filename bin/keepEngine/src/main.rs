@@ -1,8 +1,13 @@
-use std::{path::{PathBuf, Path}, fs::{File, self}, io::{BufRead, BufReader, self}, str::FromStr};
+mod decisiongraph;
 
-use anyhow::{anyhow, Result};
+use std::{path::{PathBuf, Path}, fs::{File, self}, io::{BufRead, BufReader, self}};
+
+use anyhow::Result;
 use clap::{ValueEnum, Parser};
-use regex::Regex;
+use decisiongraph::DecisionGraph;
+
+
+use crate::decisiongraph::FileAction;
 
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
 enum CleanupMode {
@@ -10,149 +15,64 @@ enum CleanupMode {
     User
 }
 
-#[derive(Clone, Copy, Debug)]
-enum FileAction {
-    Delete,
-    Keep
-}
-impl FromStr for FileAction {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "keep" => Ok(FileAction::Keep),
-            "delete" => Ok(FileAction::Delete),
-            _ => Err(anyhow!("Invalid rule action"))
-        }
-    }
-}
-
-#[derive(Debug)]
-struct Rule { pattern: Regex, base_action: FileAction, user_action: FileAction }
-impl Rule {
-    pub fn regex_from_pattern_str(pattern_str: &str) -> Result<Regex> {
-        if pattern_str.ends_with("/") {
-            return Err(anyhow!("Invalid pattern! Rules followed with a slash won't match anything: '{}'", pattern_str));
-        }
-
-        let mut pattern_regex = pattern_str.to_owned()
-            .replace("/**/", "/.+/")
-            .replace("/*/", "/[^/]+/");
-        if pattern_regex.ends_with("/**") {
-            pattern_regex.replace_range(pattern_regex.len()-2.., ".+");
-        }
-        if pattern_regex.starts_with("**/") || pattern_regex == "**" {
-            pattern_regex.replace_range(0..2, ".+");
-        }
-
-        if pattern_regex.ends_with("/*") {
-            pattern_regex.replace_range(pattern_regex.len()-1.., "[^/]+");
-        }
-        if pattern_regex.starts_with("*/") || pattern_regex == "*" {
-            pattern_regex.replace_range(0..1, "[^/]+");
-        }
-
-        if pattern_regex.contains("**") {
-            return Err(anyhow!("Invalid Pattern. Double-stars are only allowed in isolation between path separators: {}", pattern_str));
-        }
-
-        pattern_regex = pattern_regex.replace("*", "[^/]*");
-
-        pattern_regex = format!("^{}$", pattern_regex);
-        Ok(Regex::new(&pattern_regex)?)
-    }
-
-    pub fn matches(&self, path: &Path) -> bool {
-        self.pattern.is_match(path.to_str().unwrap())
-    }
-}
-
-#[derive(Debug)]
-struct Rules {
-    rules: Vec<Rule>
-}
-impl Rules {
-    pub fn new() -> Self {
-        Self { rules: vec![] }
-    }
-    pub fn add_rule_from_str(&mut self, rule_line: &str) -> Result<()> {
-        let rule_segments: Vec<_> = rule_line.splitn(3, ' ').collect();
-        assert!(rule_segments.len() == 3, "Invalid Rule: {}", rule_line);
-
-        let base_action_str = if rule_segments[0].starts_with("base:") { rule_segments[0] } else { rule_segments[1] };
-        let user_action_str = if rule_segments[0].starts_with("user:") { rule_segments[0] } else { rule_segments[1] };
-        assert!(base_action_str.starts_with("base:") && user_action_str.starts_with("user:"), "Invalid Rule: {}", rule_line);
-        let base_action = base_action_str[5..].parse::<FileAction>()?;
-        let user_action = user_action_str[5..].parse::<FileAction>()?;
-
-        let file_pattern = Rule::regex_from_pattern_str(rule_segments[2])?;
-        // So that a normal rule can also affect folders recursively, we simply create it by applying the
-        // pattern with a programatically appended allmatch /**
-        let folder_pattern = Rule::regex_from_pattern_str(&format!("{}/**", rule_segments[2]))?;
-
-        self.rules.push(Rule { pattern: file_pattern, base_action, user_action });
-        self.rules.push(Rule { pattern: folder_pattern, base_action, user_action });
-
-        Ok(())
-    }
-
-    pub fn get_action(&self, mode: CleanupMode, root_path: &Path, item: &Path) -> FileAction {
-        let mut action = FileAction::Keep;
-
-        for rule in &self.rules {
-            let rel_path = item.strip_prefix(root_path).expect("Path error! Descent path has to be child in root");
-            if rule.matches(rel_path) {
-                action = match mode {
-                    CleanupMode::Base => rule.base_action,
-                    CleanupMode::User => rule.user_action,
-                };
-            }
-        }
-
-        action
-    }
-}
-
-fn parse_rules(keep_file: &Path) -> Result<Rules> {
+fn parse_rules(keep_file: &Path) -> Result<DecisionGraph> {
     let file = File::open(keep_file).expect("Failed to open keep file!");
     let reader = BufReader::new(file);
 
-    let mut rules = Rules::new();
+    let mut decision_graph = DecisionGraph::new();
 
     for line in reader.lines() {
         let line = line.expect("Failed to read keep file");
         if !line.starts_with("#") && line.trim() != "" {
-            rules.add_rule_from_str(&line)?;
+            decision_graph.add_rule_from_str(&line)?;
         }
     }
 
     // enforced default rules
-    rules.add_rule_from_str("base:keep user:delete .keep")?;
+    decision_graph.add_rule_from_str("base:keep user:delete .keep")?;
 
-    Ok(rules)
+    Ok(decision_graph)
 }
 
-fn apply_keep(args: &CliArgs, rules: &Rules) {
+fn apply_keep(args: &CliArgs, decision_graph: &DecisionGraph) {
     if !args.folder.is_dir() {
         panic!("Given folder either does not exist or is actually a file.");
     }
 
     // depth first
-    fn traverse(args: &CliArgs, rules: &Rules, cur_path: PathBuf) -> io::Result<bool> {
+    fn traverse(args: &CliArgs, decision_graph: &DecisionGraph, cur_path: PathBuf) -> io::Result<bool> {
         let mut is_empty = true;
 
         for child in fs::read_dir(&cur_path)?.filter_map(|f| f.ok()) {
-            let action = rules.get_action(args.mode, &args.folder, &child.path());
+            let child_path = child.path();
+            let rel_path = child_path.strip_prefix(&args.folder).unwrap();
+
+            let decision = decision_graph.get_action(&rel_path);
+            let descend = decision.descend;
+            let action = match args.mode {
+                CleanupMode::Base => decision.actions.base,
+                CleanupMode::User => decision.actions.user,
+            };
+
             if child.file_type()?.is_dir() {
-                let child_empty = traverse(args, rules, child.path())?;
-                is_empty &= child_empty;
-                if child_empty && matches!(action, FileAction::Delete) {
-                    if args.verbose { println!("[DELETE] Folder {}", child.path().display()); }
-                    if !args.dryrun { let _ = fs::remove_dir(child.path()); }
+                if descend {
+                    let child_empty = traverse(args, decision_graph, child.path())?;
+                    is_empty &= child_empty;
+                    if child_empty && matches!(action, FileAction::Delete) {
+                        if args.verbose { println!("[DELETE] Folder: {}", child.path().display()); }
+                        if !args.dryrun { let _ = fs::remove_dir(child.path()); }
+                    }
+                } else {
+                    if matches!(action, FileAction::Delete) {
+                        if args.verbose { println!("[DELETE] Folder recursively: {}", child.path().display()); }
+                        if !args.dryrun { let _ = fs::remove_dir_all(child.path()); }
+                    } else {
+                        is_empty = false;
+                    }
                 }
             } else {
                 if matches!(action, FileAction::Delete) {
-                    if args.verbose { println!("[DELETE] File {}", child.path().display()); }
+                    if args.verbose { println!("[DELETE] File: {}", child.path().display()); }
                     if !args.dryrun { let _ = fs::remove_file(child.path()); }
                 } else {
                     is_empty = false;
@@ -162,7 +82,7 @@ fn apply_keep(args: &CliArgs, rules: &Rules) {
         Ok(is_empty)
     }
 
-    let _ = traverse(args, rules, args.folder.clone());
+    let _ = traverse(args, decision_graph, args.folder.clone());
 }
 
 #[derive(Debug, Parser)]

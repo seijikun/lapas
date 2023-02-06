@@ -10,6 +10,7 @@ edition = "2021"
 clap = { version = "4", features = ["derive"] }
 regex = "1"
 anyhow = "1"
+uuid = { version = "1", features = ["v4"] }
 
 [profile.release]
 opt-level = "s"
