@@ -61,7 +61,7 @@ logMakeSure "WARNING: This \"distribution\" is not hardened, and not meant for e
 ################################################
 logSection "Preparing environment";
 logInfo "Installing dependencies...";
-runSilentUnfallible apt-get install -y dialog ethtool openssh-server ntp pxelinux samba libnfs-utils isc-dhcp-server grub-pc-bin grub-efi-amd64-bin grub-efi-ia32-bin binutils nfs-kernel-server dnsmasq;
+runSilentUnfallible apt-get install -y dialog ethtool openssh-server ntp pxelinux libnfs-utils isc-dhcp-server grub-pc-bin grub-efi-amd64-bin grub-efi-ia32-bin binutils nfs-kernel-server dnsmasq;
 
 ################################################
 logSection "Configuration";
