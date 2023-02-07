@@ -18,7 +18,7 @@ function helperUserdataMoveLink() {
 		if [ -L "$inputFileOrFolder" ]; then return; fi
 		
 		if [ -f "$inputFileOrFolder" ] || [ -d "$inputFileOrFolder" ]; then
-			mkdir -p "$userDataPath" || exit 1;
+			mkdir -p "$userDataPath";
 			mv "$inputFileOrFolder" "${userDataPath}/${targetName}" || exit 1;
 			ln -rs "${userDataPath}/${targetName}" "$inputFileOrFolder" || exit 1;
 		else
@@ -43,12 +43,12 @@ function helperUserdataNewEmptyLink() {
 	if [ "$USER" != "lapas" ]; then
 		if [ -L "$inputFileOrFolder" ]; then return; fi
 		
-		mkdir -p "$userDataPath" || exit 1;
+		mkdir -p "$userDataPath";
 		if [ -f "$inputFileOrFolder" ]; then
 			touch "$targetPath" || exit 1;
 			rm "$inputFileOrFolder" || exit 1;
 		elif [ -d "$inputFileOrFolder" ]; then
-			mkdir "$targetPath" || exit 1;
+			mkdir -p "$targetPath";
 			rm -r "$inputFileOrFolder" || exit 1;
 		else
 			echo "Source does not exist!"; exit 1;
