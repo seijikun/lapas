@@ -29,7 +29,10 @@ function handleClient() {
                         echo "3 Command Failed (empty password not allowed)"; return 1;
                 fi
                 opSuccess=0;
-                for attemptIdx in {1..3}; do
+		# try 4 times to work around weird nfs locking behavior (in certain situations, the first
+		# three attempts will fail, because openat() of /etc/{passwd,group,gshadow} will return
+		# EAGAIN and useradd doesn't like that.
+                for attemptIdx in {1..4}; do
                         ADDUSER_LOG=$($(dirname "$0")/addUser.sh "$newUsername" "$newPassword" 2>&1);
                         if [ $? == 0 ]; then
                                 opSuccess=1;
