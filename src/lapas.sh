@@ -192,6 +192,11 @@ runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_
 ################################################################################################
 logSection "Setting up Guest OS Network Settings..."
 ################################################################################################
+# use systemd-resolvd (enables us to use resolvectl)
+runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable systemd-resolved
+# copy over domain and search domain settings from lapas host
+getSystemDomainResolvSettings >> "${LAPAS_GUESTROOT_DIR}/etc/resolv.conf";
+# enter lapas host as nameserver for guests
 echo "nameserver ${LAPAS_NET_IP}" >> "${LAPAS_GUESTROOT_DIR}/etc/resolv.conf";
 echo "NTP=${LAPAS_NET_IP}" >> "${LAPAS_GUESTROOT_DIR}/etc/systemd/timesyncd.conf";
 
