@@ -2,7 +2,7 @@ mod daemon;
 
 use anyhow::{anyhow, Result, Context};
 use tokio::{net::TcpStream, io::{AsyncWriteExt, AsyncReadExt}};
-use lapas_api_proto::{LapasProtocol, ProtoSerde};
+use lapas_api_proto::{LapasProtocol, ProtoSerde, ApiPassword};
 use clap::{Parser, Subcommand};
 
 //TODO: improve error handling with thiserror instead of anyhow? (different return values for different errors)
@@ -26,6 +26,10 @@ struct CliArgs {
     /// LAPAS administration password to use during authentication with the API server.
     #[arg(long = "auth")]
     api_password: Option<String>,
+
+    /// Root Nonce to use for authentication with the LAPAS API server.
+    #[arg(long = "rootauth", env)]
+    root_nonce: Option<String>,
 
     /// Address of the LAPAS pi server
     #[arg(long = "host", default_value = "lapas")]
@@ -55,21 +59,24 @@ enum ClientCommand {
     }
 }
 
-async fn connect(args: &CliArgs) -> Result<TcpStream> {
+async fn connect_and_authenticate(args: &CliArgs) -> Result<TcpStream> {
     let mut stream = TcpStream::connect(format!("{}:{}", args.api_host, args.api_port)).await?;
+    // use one of the supplied authentication mechanisms (prefer root_nonce).
+    let password = match (&args.api_password, &args.root_nonce) {
+        (_, Some(root_nonce)) => ApiPassword::RootNonce(root_nonce.clone()),
+        (Some(api_password), _) => ApiPassword::Plain(api_password.clone()),
+        _ => unreachable!()
+    };
     perform_request(
         &mut stream,
-        LapasProtocol::RequestHello { version: lapas_api_proto::VERSION, password: args.api_password.clone() }
+        LapasProtocol::RequestHello { version: lapas_api_proto::VERSION, password }
     ).await.context("Login")?.map_err(|msg| anyhow!(msg))?;
     Ok(stream)
 }
 
 
 async fn cmd_check_auth(args: &CliArgs) -> Result<()> {
-    if args.api_password.is_none() {
-        return Err(anyhow!("You have to pass the authentication password to use this command"));
-    }
-    let mut connection = connect(args).await?;
+    let mut connection = connect_and_authenticate(args).await?;
     let _ = connection.shutdown().await;
     println!("Authentication Successful");
     Ok(())
@@ -77,7 +84,7 @@ async fn cmd_check_auth(args: &CliArgs) -> Result<()> {
 
 
 async fn cmd_add_user(args: &CliArgs, username: &str, password: &str) -> Result<()> {
-    let mut connection = connect(args).await?;
+    let mut connection = connect_and_authenticate(args).await?;
     perform_request(
         &mut connection,
         LapasProtocol::RequestAddUser { username: username.to_owned(), password: password.to_owned() }
@@ -90,6 +97,9 @@ async fn cmd_add_user(args: &CliArgs, username: &str, password: &str) -> Result<
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     let args = CliArgs::parse();
+    if let (None, None) = (&args.api_password, &args.root_nonce) {
+        return Err(anyhow!("Authentication option required"));
+    }
 
     match &args.command {
         ClientCommand::Daemon => daemon::run(&args).await?,

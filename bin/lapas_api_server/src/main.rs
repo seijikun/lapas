@@ -2,22 +2,26 @@ mod user_service;
 mod notification_service;
 
 use std::collections::HashMap;
+use std::os::unix::prelude::PermissionsExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result, Context};
 use notification_service::NotificationService;
+use rand::Rng;
+use rand::distributions::Alphanumeric;
 use sha2::{Sha512, Digest};
 use tokio::fs::File;
 use tokio::net::{TcpStream, TcpListener};
 use tokio::io::{AsyncWriteExt, BufReader, AsyncBufReadExt};
 use clap::Parser;
-use lapas_api_proto::{LapasProtocol, ProtoSerde};
+use lapas_api_proto::{LapasProtocol, ProtoSerde, ApiPassword};
 use tokio::sync::Mutex;
 use user_service::UserService;
 
 struct State {
     config: HashMap<String, String>,
+    root_nonce: String,
     user_service: Mutex<UserService>,
     notification_service: NotificationService
 }
@@ -40,11 +44,31 @@ impl State {
             config.insert(key.to_owned(), value.to_owned());
         }
 
+        // generate random root nonce that can be used for root logins.
+        // This root_nonce will then be written to the guest's lapas directory (only root-accessible)
+        let root_nonce: String = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(128)
+            .map(char::from)
+            .collect();
+        let guest_root_dir = config.get("LAPAS_GUESTROOT_DIR").expect("Config File missing parameter LAPAS_GUESTROOT_DIR");
+        let mut root_nonce_file = PathBuf::from(guest_root_dir);
+        root_nonce_file.push("lapas");
+        root_nonce_file.push("apiserver_root_nonce.env");
+        let mut root_nonce_file = File::create(root_nonce_file).await?;
+        root_nonce_file.write_all(format!("ROOT_NONCE=\"{}\"\n", root_nonce).as_bytes()).await?;
+        root_nonce_file.flush().await?;
+        let mut root_nonce_file_permissions = root_nonce_file.metadata().await?.permissions();
+        // only root accessible
+        root_nonce_file_permissions.set_mode(0);
+        root_nonce_file.set_permissions(root_nonce_file_permissions).await?;
+
         let scripts_dir = config.get("LAPAS_SCRIPTS_DIR")
             .expect("Config File missing parameter LAPAS_SCRIPTS_DIR")
             .clone();
         Ok(State {
             config,
+            root_nonce,
             user_service: Mutex::new(UserService::new(scripts_dir)),
             notification_service: NotificationService::new()
         })
@@ -57,12 +81,19 @@ impl State {
         self.config.get("LAPAS_PASSWORD_HASH").expect("Config File missing parameter LAPAS_PASSWORD_HASH")
     }
 
-    pub fn check_password(&self, password: String) -> bool {
-        let password = format!("{}{}", self.password_salt(), password); // prepend salt
-        let mut hasher = Sha512::new();
-        hasher.update(password.as_bytes());
-        let password_hash = hex::encode(hasher.finalize());
-        self.password_hash() == password_hash
+    pub fn check_auth(&self, password: ApiPassword) -> bool {
+        match password {
+            ApiPassword::RootNonce(root_nonce) => {
+                root_nonce == self.root_nonce
+            },
+            ApiPassword::Plain(api_password) => {
+                let salted_password = format!("{}{}", self.password_salt(), api_password); // prepend salt
+                let mut hasher = Sha512::new();
+                hasher.update(salted_password.as_bytes());
+                let salted_password_hash = hex::encode(hasher.finalize());
+                self.password_hash() == salted_password_hash
+            },
+        }
     }
 
     pub async fn add_user(&self, username: String, password: String) -> Result<()> {
@@ -88,7 +119,6 @@ type SharedState = Arc<State>;
 async fn handle_client(mut stream: TcpStream, state: SharedState) -> Result<()> {
     let peer_addr = stream.peer_addr()?;
 
-    let mut authenticated = false;
     let pkt = LapasProtocol::decode(&mut stream).await?;
     if let LapasProtocol::RequestHello { version, password } = pkt {
         if version != lapas_api_proto::VERSION {
@@ -98,15 +128,12 @@ async fn handle_client(mut stream: TcpStream, state: SharedState) -> Result<()> 
             stream.shutdown().await?;
             return Ok(());
         }
-        if let Some(password) = password {
-            if !state.check_password(password) {
-                println!("Client[{}] Authentication Failed. Incorrect Password", peer_addr);
-                LapasProtocol::ResponseResult { result: Err("Authentication Failed. Incorrect Password".to_owned()) }
-                    .encode(&mut stream).await?;
-                stream.shutdown().await?;
-                return Ok(());
-            }
-            authenticated = true;
+        if !state.check_auth(password) {
+            println!("Client[{}] Authentication Failed", peer_addr);
+            LapasProtocol::ResponseResult { result: Err("Authentication Failed".to_owned()) }
+                .encode(&mut stream).await?;
+            stream.shutdown().await?;
+            return Ok(());
         }
     } else {
         stream.shutdown().await?;
@@ -121,12 +148,6 @@ async fn handle_client(mut stream: TcpStream, state: SharedState) -> Result<()> 
                 LapasProtocol::ResponseResult { result: Ok(()) }.encode(&mut stream).await?;
             },
             LapasProtocol::RequestAddUser { username, password } => {
-                if !authenticated {
-                    LapasProtocol::ResponseResult { result: Err("Authentication Required".to_owned()) }
-                        .encode(&mut stream).await?;
-                    return Err(anyhow!("Client attempted to use authenticated API without authentication"));
-                }
-
                 println!("Client[{}] Adding User: {} ...", peer_addr, username);
                 let result = state.add_user(username.clone(), password).await
                     .map_err(|e| e.to_string());

@@ -2,7 +2,12 @@
 After=network.target
 
 [Service]
+User=root
 Type=simple
+Restart=on-failure
+RestartSec=1s
+StartLimitInterval=0
+EnvironmentFile=/lapas/apiserver_root_nonce.env
 ExecStart=/lapas/lapas-api-client daemon
 
 [Install]

@@ -2,53 +2,38 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Result, Context};
 use lapas_api_proto::{LapasProtocol, ProtoSerde};
-use tokio::{time, net::TcpStream, io::AsyncWriteExt, process::Command};
+use tokio::{time, process::Command};
 
-use crate::{CliArgs, perform_request, connect};
+use crate::{CliArgs, perform_request, connect_and_authenticate};
 
 pub(crate) async fn run(args: &CliArgs) -> Result<()> {
-    async fn inner(stream: &mut TcpStream) -> Result<()> {
-        perform_request(
-            stream,
-            LapasProtocol::SwitchNotify {}
-        ).await.context("Switch to Notification Mode")?.map_err(|msg| anyhow!(msg))?;
+    let mut stream = connect_and_authenticate(args).await?;
+    println!("Connected");
 
-        loop {
-            tokio::select! {
-                _ = time::sleep(Duration::from_millis(1000)) => {
-                    LapasProtocol::RequestPing{}.encode(stream).await?;
-                },
-                pkt = LapasProtocol::decode(stream) => {
-                    let pkt = pkt?;
-                    match pkt {
-                        LapasProtocol::RequestPing {} => {
-                            LapasProtocol::ResponseResult{ result: Ok(()) }.encode(stream).await?;
-                        },
-                        LapasProtocol::ResponseResult { result: _ } => {}, // client ping response
-                        LapasProtocol::NotifyRootChanged{} => handle_root_changed().await,
-                        _ => { // error - unknown packet
-                            Err(anyhow!("Received invalid Packet"))?;
-                        }
-                    }
-                }
-            };
-        }
-    }
+    perform_request(
+        &mut stream,
+        LapasProtocol::SwitchNotify {}
+    ).await.context("Switch to Notification Mode")?.map_err(|msg| anyhow!(msg))?;
 
     loop {
-        match connect(args).await {
-            Ok(mut connection) => {
-                println!("Connected");
-                match inner(&mut connection).await {
-                    Ok(()) => {},
-                    Err(e) => println!("Disconnected\n{}", e),
-                }
-                let _ = connection.shutdown().await;
+        tokio::select! {
+            _ = time::sleep(Duration::from_millis(1000)) => {
+                LapasProtocol::RequestPing{}.encode(&mut stream).await?;
             },
-            Err(e) => println!("Connecting failed: {}", e),
-        }
-        time::sleep(Duration::from_millis(1000)).await;
-        println!("Retrying...");
+            pkt = LapasProtocol::decode(&mut stream) => {
+                let pkt = pkt?;
+                match pkt {
+                    LapasProtocol::RequestPing {} => {
+                        LapasProtocol::ResponseResult{ result: Ok(()) }.encode(&mut stream).await?;
+                    },
+                    LapasProtocol::ResponseResult { result: _ } => {}, // client ping response
+                    LapasProtocol::NotifyRootChanged{} => handle_root_changed().await,
+                    _ => { // error - unknown packet
+                        Err(anyhow!("Received invalid Packet"))?;
+                    }
+                }
+            }
+        };
     }
 }
 
