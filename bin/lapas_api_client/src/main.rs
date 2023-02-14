@@ -52,6 +52,10 @@ enum ClientCommand {
     /// Connect to the LAPAS API server and check whether the given administration password
     /// is correct. Returns process exit code 0 if successfull, with a code != 0 otherwise.
     CheckAuth,
+    /// Add a DNS mapping for the IP of this machine to the given username
+    AddDnsMapping {
+        username: String
+    },
     /// Add a new player user with the given credentials (username & password).
     AddUser {
         username: String,
@@ -82,6 +86,15 @@ async fn cmd_check_auth(args: &CliArgs) -> Result<()> {
     Ok(())
 }
 
+async fn cmd_add_dns_mapping(args: &CliArgs, username: &str) -> Result<()> {
+    let mut connection = connect_and_authenticate(args).await?;
+    perform_request(
+        &mut connection,
+        LapasProtocol::RequestDnsMapping { username: username.to_owned() }
+    ).await?.map_err(|e| anyhow!(e)).context("Adding DNS Mapping for this machine failed")?;
+    println!("DNS Mapping for user: {} to this device successfully created", username);
+    Ok(())
+}
 
 async fn cmd_add_user(args: &CliArgs, username: &str, password: &str) -> Result<()> {
     let mut connection = connect_and_authenticate(args).await?;
@@ -104,6 +117,7 @@ async fn main() -> Result<()> {
     match &args.command {
         ClientCommand::Daemon => daemon::run(&args).await?,
         ClientCommand::CheckAuth => cmd_check_auth(&args).await?,
+        ClientCommand::AddDnsMapping { username } => cmd_add_dns_mapping(&args, username).await?,
         ClientCommand::AddUser { username, password } => cmd_add_user(&args, username, password).await?,
     }
     Ok(())

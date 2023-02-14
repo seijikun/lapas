@@ -28,6 +28,7 @@ pub(crate) async fn run(args: &CliArgs) -> Result<()> {
                     },
                     LapasProtocol::ResponseResult { result: _ } => {}, // client ping response
                     LapasProtocol::NotifyRootChanged{} => handle_root_changed().await,
+                    LapasProtocol::NotifyDnsMappingsChanged{} => handle_dns_mappings_changed().await,
                     _ => { // error - unknown packet
                         Err(anyhow!("Received invalid Packet"))?;
                     }
@@ -38,7 +39,7 @@ pub(crate) async fn run(args: &CliArgs) -> Result<()> {
 }
 
 async fn handle_root_changed() {
-    println!("[Event] Root Changed");
+    println!("[Event] Root filesystem changed");
     println!("Remounting root filesystem...");
     let child = Command::new("/usr/bin/mount")
         .args(&["-o", "remount", "/"])
@@ -54,6 +55,27 @@ async fn handle_root_changed() {
         },
         Err(e) => {
             println!("Failed to remount root filesystem: {}", e);
+        },
+    }
+}
+
+async fn handle_dns_mappings_changed() {
+    println!("[Event] DNS Mappings changed");
+    println!("Flusing DNS cache...");
+    let child = Command::new("/usr/bin/resolvectl")
+        .arg("flush-caches")
+        .spawn();
+    match child {
+        Ok(mut child) => {
+            match child.wait().await {
+                Ok(result) if result.success() => {
+                    println!("Successfully flushed DNS cache");
+                },
+                _ => println!("Failed to flush DNS cache")
+            }
+        },
+        Err(e) => {
+            println!("Failed to flush DNS cache: {}", e);
         },
     }
 }

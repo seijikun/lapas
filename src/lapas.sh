@@ -70,6 +70,7 @@ LAPAS_SCRIPTS_DIR="${LAPAS_BASE_DIR}/scripts";
 LAPAS_TFTP_DIR="${LAPAS_BASE_DIR}/tftp";
 LAPAS_GUESTROOT_DIR="${LAPAS_BASE_DIR}/guest";
 LAPAS_USERHOMES_DIR="${LAPAS_BASE_DIR}/homes";
+LAPAS_DNS_HOSTMAPPINGS_DIR="/tmp/lapas_dns_hostmappings";
 LAPAS_TIMEZONE=$(getSystemTimezone);
 LAPAS_KEYMAP=$(getSystemKeymap);
 LAPAS_PASSWORD_SALT="lApAsPaSsWoRdSaLt_";
@@ -139,6 +140,7 @@ LAPAS_CONFIGURATION_OPTIONS=(
 	"LAPAS_PASSWORD_HASH=$(echo -n "${LAPAS_PASSWORD_SALT}${LAPAS_PASSWORD}" | sha512sum | cut -d' ' -f1)"
 	"LAPAS_NFS_VERSION=${LAPAS_NFS_VERSION}"
 	"LAPAS_NFS_USER_MOUNTOPTIONS=${LAPAS_NFS_USER_MOUNTOPTIONS}"
+	"LAPAS_DNS_HOSTMAPPINGS_DIR=${LAPAS_DNS_HOSTMAPPINGS_DIR}"
 );
 
 cliYesNo "This is your configuration. Continue?" resultConfigCheckOk;
@@ -318,8 +320,10 @@ no-hosts
 local=/${LAPAS_NET_DOMAIN}/
 address=/lapas/${LAPAS_NET_IP}
 address=/lapas.${LAPAS_NET_DOMAIN}/${LAPAS_NET_IP}
+hostsdir=${LAPAS_DNS_HOSTMAPPINGS_DIR}
 EOF
 runSilentUnfallible systemctl enable dnsmasq;
+mkdir -p "${LAPAS_DNS_HOSTMAPPINGS_DIR}";
 
 
 logSubsection "Setting up NFS...";
@@ -356,12 +360,10 @@ sleep 2;
 runSilentUnfallible systemctl restart systemd-networkd
 uiAwaitLinkStateUp "${LAPAS_NIC_UPSTREAM}" "${LAPAS_NIC_INTERNAL[@]}" "lapas" || exit 1;
 
-runSilentUnfallible systemctl restart rpc-statd;
 runSilentUnfallible systemctl restart ntp;
 runSilentUnfallible systemctl restart dnsmasq;
 runSilentUnfallible systemctl restart isc-dhcp-server
 runSilentUnfallible systemctl start lapas-api-server;
-
 
 
 

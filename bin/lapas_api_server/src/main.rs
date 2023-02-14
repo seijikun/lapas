@@ -1,12 +1,15 @@
+mod dns_service;
 mod user_service;
 mod notification_service;
 
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::os::unix::prelude::PermissionsExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result, Context};
+use dns_service::DnsService;
 use notification_service::NotificationService;
 use rand::Rng;
 use rand::distributions::Alphanumeric;
@@ -23,6 +26,7 @@ struct State {
     config: HashMap<String, String>,
     root_nonce: String,
     user_service: Mutex<UserService>,
+    dns_service: Mutex<DnsService>,
     notification_service: NotificationService
 }
 impl State {
@@ -44,6 +48,19 @@ impl State {
             config.insert(key.to_owned(), value.to_owned());
         }
 
+        let scripts_dir = config.get("LAPAS_SCRIPTS_DIR")
+            .expect("Config File missing parameter LAPAS_SCRIPTS_DIR")
+            .clone();
+        let guest_root_dir = config.get("LAPAS_GUESTROOT_DIR")
+            .expect("Config File missing parameter LAPAS_GUESTROOT_DIR")
+            .clone();
+        let dns_domain = config.get("LAPAS_NET_DOMAIN")
+            .expect("Config File missing parameter LAPAS_NET_DOMAIN")
+            .clone();
+        let dns_hostmap_dir = config.get("LAPAS_DNS_HOSTMAPPINGS_DIR")
+            .expect("Config File missing parameter LAPAS_DNS_HOSTMAPPINGS_DIR")
+            .clone();
+
         // generate random root nonce that can be used for root logins.
         // This root_nonce will then be written to the guest's lapas directory (only root-accessible)
         let root_nonce: String = rand::thread_rng()
@@ -51,7 +68,6 @@ impl State {
             .take(128)
             .map(char::from)
             .collect();
-        let guest_root_dir = config.get("LAPAS_GUESTROOT_DIR").expect("Config File missing parameter LAPAS_GUESTROOT_DIR");
         let mut root_nonce_file = PathBuf::from(guest_root_dir);
         root_nonce_file.push("lapas");
         root_nonce_file.push("apiserver_root_nonce.env");
@@ -63,13 +79,11 @@ impl State {
         root_nonce_file_permissions.set_mode(0);
         root_nonce_file.set_permissions(root_nonce_file_permissions).await?;
 
-        let scripts_dir = config.get("LAPAS_SCRIPTS_DIR")
-            .expect("Config File missing parameter LAPAS_SCRIPTS_DIR")
-            .clone();
         Ok(State {
             config,
             root_nonce,
             user_service: Mutex::new(UserService::new(scripts_dir)),
+            dns_service: Mutex::new(DnsService::new(dns_domain, dns_hostmap_dir).await?),
             notification_service: NotificationService::new()
         })
     }
@@ -79,6 +93,9 @@ impl State {
     }
     fn password_hash(&self) -> &str {
         self.config.get("LAPAS_PASSWORD_HASH").expect("Config File missing parameter LAPAS_PASSWORD_HASH")
+    }
+    fn dns_domain(&self) -> &str {
+        self.config.get("LAPAS_NET_DOMAIN").expect("Config File missing parameter LAPAS_NET_DOMAIN")
     }
 
     pub fn check_auth(&self, password: ApiPassword) -> bool {
@@ -101,6 +118,15 @@ impl State {
         let result = user_service.add_user(username, password).await;
         if let Ok(_) = result {
             self.notify(LapasProtocol::NotifyRootChanged {});
+        }
+        result
+    }
+
+    pub async fn create_user_host_mapping(&self, username: String, addr: SocketAddr) -> Result<()> {
+        let dns_service = self.dns_service.lock().await;
+        let result = dns_service.create_mapping(username, addr).await;
+        if let Ok(_) = result {
+            self.notify(LapasProtocol::NotifyDnsMappingsChanged{});
         }
         result
     }
@@ -154,6 +180,16 @@ async fn handle_client(mut stream: TcpStream, state: SharedState) -> Result<()> 
                 match &result {
                     Ok(_) => println!("Client[{}] Adding User: {} succeeded", peer_addr, username),
                     Err(e) => println!("Client[{}] Adding User: {} failed:\n{}", peer_addr, username, e),
+                }
+                LapasProtocol::ResponseResult { result }.encode(&mut stream).await?;
+            },
+            LapasProtocol::RequestDnsMapping { username } => {
+                println!("Client[{}] IP now mapped to: {}.{} ...", peer_addr, username, state.dns_domain());
+                let result = state.create_user_host_mapping(username.clone(), peer_addr).await
+                    .map_err(|e| e.to_string());
+                match &result {
+                    Ok(_) => println!("Client[{}] Mapping IP to: {}.{} succeeded", peer_addr, username, state.dns_domain()),
+                    Err(e) => println!("Client[{}] Mapping IP to: {}.{} failed:\n{}", peer_addr, username, state.dns_domain(), e),
                 }
                 LapasProtocol::ResponseResult { result }.encode(&mut stream).await?;
             },

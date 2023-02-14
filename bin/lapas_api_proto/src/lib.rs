@@ -3,7 +3,7 @@ pub use proto::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 pub type Version = u32;
-pub const VERSION: Version = 3;
+pub const VERSION: Version = 4;
 
 #[derive(Debug, Clone)]
 pub enum ApiPassword {
@@ -55,11 +55,19 @@ define_protocol!(proto LapasProtocol {
         username: String,
         password: String
     },
+    // Tell the server that he should now create a dns mapping for the given user
+    // to the ip address from which this requests is comming
+    RequestDnsMapping {
+        username: String
+    },
 
     // switch to notify mode. After sending this package (client -> server), the
     // connection can only be used to receive notifications from the server
     SwitchNotify {},
     // Packet notifying tuests that they should remount their root filesystem because
     // some files have changed (takes a remount to avoid stale file handle errors with overlayfs)
-    NotifyRootChanged {}
+    NotifyRootChanged {},
+    // Packet notifying guests that they should now clear their dns cache because some
+    // mappings have changed
+    NotifyDnsMappingsChanged {}
 });

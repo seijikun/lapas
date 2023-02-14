@@ -7,7 +7,8 @@ USER_WORKDIR_BASE="/mnt/.overlays";
 USER_BASE="/mnt/homeBase";
 LAPAS_USER_GROUPNAME="lanparty";
 
-. /lapas/common.sh || exit 1;
+. "/lapas/common.sh" || exit 1;
+. "/lapas/apiserver_root_nonce.env" || exit 1;
 
 # Only run mountHome-script for lapas users
 [ $(id -ng $PAM_USER) != "$LAPAS_USER_GROUPNAME" ] && exit 0;
@@ -25,6 +26,8 @@ if [ "$PAM_USER" != "lapas" ] && [ "$PAM_TYPE" == "open_session" ]; then
 	USER_IMAGE="${USER_IMAGE_BASE}/${PAM_USER}";
 	USER_IMAGE_MOUNTDIR="${USER_WORKDIR_BASE}/${PAM_USER}";
 
+	ROOT_NONCE="${ROOT_NONCE}" /lapas/lapas-api-client add-dns-mapping "${PAM_USER}";
+	
 	if [ ! -f "$USER_IMAGE" ]; then
 		# create image for user-specific dynamic data
 		assertSuccessfull truncate -s $USER_IMAGE_SIZE "$USER_IMAGE";
