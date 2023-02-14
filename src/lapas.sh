@@ -73,6 +73,7 @@ LAPAS_USERHOMES_DIR="${LAPAS_BASE_DIR}/homes";
 LAPAS_TIMEZONE=$(getSystemTimezone);
 LAPAS_KEYMAP=$(getSystemKeymap);
 LAPAS_PASSWORD_SALT="lApAsPaSsWoRdSaLt_";
+LAPAS_NET_DOMAIN=$(hostname -d);
 
 uiSelectNetworkDevices "single" "Select the upstream network card (house network / with internet connection)\nThis will be configured as dhcp client.
 Hint: Use 'ethtool --identify <enp...>' in a second terminal to identify the NICs listed here." LAPAS_NIC_UPSTREAM || exit 1;
@@ -97,6 +98,7 @@ $(cat /etc/default/locale | grep --invert-match -E "^#" | sed 's/^/\t  /')
 	Upstream Network:
 		- Adapter: ${LAPAS_NIC_UPSTREAM}
 	Lapas Network:
+		- Domain: ${LAPAS_NET_DOMAIN}
 		- Adapter(s): ${LAPAS_NIC_INTERNAL[@]}
 		- Subnet Base-Address: ${LAPAS_NET_SUBNET_BASEADDRESS}
 		- Lapas IP: ${LAPAS_NET_IP}
@@ -120,6 +122,7 @@ echo "$CONFIGURATION_OVERVIEW";
 
 LAPAS_CONFIGURATION_OPTIONS=(
 	"LAPAS_NET_ADDRESS=${LAPAS_NET_ADDRESS}"
+	"LAPAS_NET_DOMAIN=${LAPAS_NET_DOMAIN}"
 	"LAPAS_NET_SUBNET_BASEADDRESS=${LAPAS_NET_SUBNET_BASEADDRESS}"
 	"LAPAS_NET_IP=${LAPAS_NET_IP}"
 	"LAPAS_NET_NETMASK=${LAPAS_NET_NETMASK}"
@@ -194,10 +197,6 @@ logSection "Setting up Guest OS Network Settings..."
 ################################################################################################
 # use systemd-resolvd (enables us to use resolvectl)
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable systemd-resolved
-# copy over domain and search domain settings from lapas host
-getSystemDomainResolvSettings >> "${LAPAS_GUESTROOT_DIR}/etc/resolv.conf";
-# enter lapas host as nameserver for guests
-echo "nameserver ${LAPAS_NET_IP}" >> "${LAPAS_GUESTROOT_DIR}/etc/resolv.conf";
 echo "NTP=${LAPAS_NET_IP}" >> "${LAPAS_GUESTROOT_DIR}/etc/systemd/timesyncd.conf";
 
 
@@ -206,6 +205,7 @@ logSection "Extracting LAPAS resources..."
 ################################################################################################
 streamBinaryPayload "${SELF_PATH}" "__PAYLOAD_LAPAS_RESOURCES__" | base64 -d | gzip -d | tar -x --no-same-owner || exit 1;
 runSilentUnfallible configureOptionsToFile "${LAPAS_SCRIPTS_DIR}/config" "${LAPAS_CONFIGURATION_OPTIONS[@]}";
+runSilentUnfallible configureFileInplace "${LAPAS_GUESTROOT_DIR}/etc/resolv.conf" "${LAPAS_CONFIGURATION_OPTIONS[@]}";
 runSilentUnfallible configureFileInplace "${LAPAS_GUESTROOT_DIR}/etc/initcpio/hooks/remountoverlay" "${LAPAS_CONFIGURATION_OPTIONS[@]}";
 runSilentUnfallible configureFileInplace "${LAPAS_GUESTROOT_DIR}/etc/systemd/system/lapas-firstboot-setup.service" "${LAPAS_CONFIGURATION_OPTIONS[@]}";
 runSilentUnfallible chown -R 1000:1000 "${LAPAS_GUESTROOT_DIR}/mnt/homeBase";
@@ -311,6 +311,12 @@ no-dhcp-interface=
 # use dnsmasq as tftp server
 enable-tftp
 tftp-root="${LAPAS_TFTP_DIR}"
+# configure dns resolution
+# disable hosts file because that would announce lapas as 127.0.1.1 (what? lol)
+no-hosts
+local=/${LAPAS_NET_DOMAIN}/
+address=/lapas/${LAPAS_NET_IP}
+address=/lapas.${LAPAS_NET_DOMAIN}/${LAPAS_NET_IP}
 EOF
 runSilentUnfallible systemctl enable dnsmasq;
 

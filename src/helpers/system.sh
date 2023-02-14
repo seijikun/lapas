@@ -20,10 +20,6 @@ function getSystemKeymap() {
 	result="${result#*=\"}";
 	echo "${result%\"}";
 }
-function getSystemDomainResolvSettings() {
-	echo $(cat /etc/resolv.conf | grep -E "^domain ");
-	echo $(cat /etc/resolv.conf | grep -E "^search ");
-}
 
 
 # converts an int to a netmask as 24 -> 255.255.255.0
