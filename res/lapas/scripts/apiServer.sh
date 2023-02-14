@@ -8,7 +8,7 @@ export USER="root";
 function handleClient() {
         1>&2 echo "Awaiting authentication...";
         read authPassword || return 1;
-        authPasswordHash=$(echo "${LAPAS_PASSWORD_SALT}${authPassword}" | sha512sum | cut -d" " -f1);
+        authPasswordHash=$(echo -n "${LAPAS_PASSWORD_SALT}${authPassword}" | sha512sum | cut -d" " -f1);
         if [ "$LAPAS_PASSWORD_HASH" != "$authPasswordHash" ]; then
                 1>&2 echo "Authentication failed... closing connection";
                 echo "1 Auth failed (wrong password)"; return 1;
