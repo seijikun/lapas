@@ -1,0 +1,18 @@
+[package]
+name = "lapas-api-client"
+version = "0.1.0"
+authors = ["Markus Ebner <hiwatari.seiji@gmail.com>"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1"
+tokio = { version = "1", features = ["rt", "macros", "net", "time", "sync", "process", "io-util"] }
+lapas-api-proto = { path = "../lapas_api_proto" }
+clap = { version = "4", features = ["derive"] }
+
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1

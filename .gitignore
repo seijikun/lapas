@@ -1,1 +1,6 @@
 lapas_installer.sh
+
+# build artifacts
+res/lapas/guest/lapas/keepEngine
+res/lapas/scripts/lapas-api-server
+res/lapas/guest/lapas/lapas-api-client

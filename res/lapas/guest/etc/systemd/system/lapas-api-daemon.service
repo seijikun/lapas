@@ -1,0 +1,9 @@
+[Unit]
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/lapas/lapas-api-client daemon
+
+[Install]
+WantedBy=multi-user.target

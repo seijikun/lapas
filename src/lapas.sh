@@ -261,6 +261,7 @@ EOF
 # Set keymap with init service instead, because it then also creates the x11 keymap
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable lapas-firstboot-setup;
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable lapas-filesystem;
+runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable lapas-api-daemon;
 
 logSubsection "Generating Guest Ramdisk..."
 # we intentionally keep this ramdisk basically empty, so we don't have to rebuild it with every new kernel

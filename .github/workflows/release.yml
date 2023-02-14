@@ -20,13 +20,7 @@ jobs:
           toolchain: stable
           target: x86_64-unknown-linux-musl
       - name: Build Installer Script and Dependencies
-        run: |
-          pushd bin/keepEngine
-          cargo build --target x86_64-unknown-linux-musl --release
-          popd
-          cp bin/keepEngine/target/release/keepEngine res/lapas/guest/lapas/
-          chmod +x res/lapas/guest/lapas/keepEngine
-          python3 ./make.py > ./lapas_installer.sh
+        run: ./make.sh
       - uses: "marvinpinto/action-automatic-releases@latest"
         with:
           repo_token: "${{ github.token }}"

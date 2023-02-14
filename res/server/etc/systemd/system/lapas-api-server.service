@@ -1,9 +1,11 @@
 [Unit]
 After=network.target
+Before=dnsmasq.service
 
 [Service]
+User=root
 Type=simple
-ExecStart=@@LAPAS_SCRIPTS_DIR@@/apiServer.sh
+ExecStart=@@LAPAS_SCRIPTS_DIR@@/lapas-api-server --config @@LAPAS_SCRIPTS_DIR@@/config
 
 [Install]
 WantedBy=multi-user.target

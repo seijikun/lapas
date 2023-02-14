@@ -1,124 +1,41 @@
 #!/bin/bash
-if [ ! "$BASH_VERSION" ]; then exec /bin/bash "$0" "$@"; fi
 
-LAPAS_API_IP=$(ip route | grep "default via" | cut -d' ' -f3);
-LAPAS_API_PORT=1337;
-
-LAPAS_APIRES_SUCCESS=0;
-LAPAS_APIRES_AUTHERR=1;
-LAPAS_APIRES_IOERR=2;
-LAPAS_APIRES_OPERR=3;
-
-# Usage: lapasCheckAuth <lapasAdminPassword>
-# Returns: LAPAS_APIRES_SUCCESS on success
-# Returns: LAPAS_APIRES_AUTHERR on auth failure (wrong password)
-# Returns: LAPAS_APIRES_IOERR on IO failure
-function lapasApiCheckAuth() {
-        lapasPassword="$1";
-        coproc client { nc ${LAPAS_API_IP} ${LAPAS_API_PORT}; }
-        result=$LAPAS_APIRES_SUCCESS;
-        while true; do
-                echo "$lapasPassword" >&${client[1]} || { result=$LAPAS_APIRES_IOERR; break; };
-                read -t 5 authResult <&${client[0]} || { result=$LAPAS_APIRES_IOERR; break; };
-                if [ "${authResult:0:2}" != "0 " ]; then
-                        echo "${authResult:3}";
-                        result=$LAPAS_APIRES_AUTHERR; break;
-                fi
-                echo "noop" >&${client[1]} || { result=$LAPAS_APIRES_IOERR; break; };
-                break;
-        done
-        exec {client[1]}>&-; # close stream
-        wait $client_PID;
-        return $result;
-}
-
-# Usage: lapasCheckAuth <lapasAdminPassword> <newUserName> <newUserPassword>
-# Returns: LAPAS_APIRES_SUCCESS on success
-# Returns: LAPAS_APIRES_AUTHERR on auth failure (wrong password)
-# Returns: LAPAS_APIRES_IOERR on IO failure
-# Returns: LAPAS_APIRES_OPERR when the executed command failed
-function lapasApiAddUser() {
-        lapasPassword="$1"; newUserName="$2"; newUserPassword="$3";
-        coproc client { nc ${LAPAS_API_IP} ${LAPAS_API_PORT}; }
-        result=$LAPAS_APIRES_SUCCESS;
-        while true; do
-                echo "$lapasPassword" >&${client[1]} || { result=$LAPAS_APIRES_IOERR; break; };
-                read -t 5 authResult <&${client[0]} || { result=$LAPAS_APIRES_IOERR; break; };
-                if [ "${authResult:0:2}" != "0 " ]; then
-                        echo "${authResult:3}";
-                        result=$LAPAS_APIRES_AUTHERR; break;
-                fi
-
-                echo -e "addUser\n${newUserName}\n${newUserPassword}" >&${client[1]} || { result=$LAPAS_APIRES_IOERR; break; };
-                read -t 20 addUserResult <&${client[0]} || { result=$LAPAS_APIRES_IOERR; break; };
-                if [ "${addUserResult:0:2}" != "0 " ]; then
-                        echo "${addUserResult:3}";
-                        result=$LAPAS_APIRES_OPERR; break;
-                fi
-                break;
-        done
-        exec {client[1]}>&-; # close stream
-        wait $client_PID;
-        return $result;
-}
-
-# Usage: handleResult <resultCode> <resultOutput>
-# Returns: 0 on success
-# Returns: 1 if the app should be restarted (re-authenticate)
-# Returns: 2 if the last op should be retried
-function handleResult() {
-        resultCode="$1"; resultOutput="$2";
-        if [ $resultCode == $LAPAS_APIRES_SUCCESS ]; then
-                return 0;
-        elif [ $resultCode == $LAPAS_APIRES_AUTHERR ]; then
-                zenity --error --title="Authentication Error" --text="Authentication failed: ${serverResponse}";
-                return 1;
-        elif [ $resultCode == $LAPAS_APIRES_IOERR ]; then
-                zenity --error --title="IO Error" --text="Error while reaching LAPAS API Server (Network issues?)";
-                return 1;
-        elif [ $resultCode == $LAPAS_APIRES_OPERR ]; then
-                zenity --error --title="Command Error" --text="Error while executing your command: ${serverResponse}";
-                return 2;
-        fi
-        return 1;
-}
-
+# authenticate
 while true; do
-        lapasPassword=$(zenity --password --title="Lapas Auth");
-        if [ $? != 0 ]; then exit 1; fi # user aborted
-        resultResponse=$(lapasApiCheckAuth "$lapasPassword"); resultCode=$?;
-        handleResult "$resultCode" "$resultResponse"; action=$?;
-        if [ $action == 1 ] || [ $action == 2 ]; then continue; fi
-
-        # Ask user for new username / new password
-        while true; do
-                IFS='|' CREDS=( $(zenity --forms --title "Add User" --text "Add new user" \
-                        --add-entry="Username" \
-                        --add-password="Password" \
-                        --add-password="Password Confirm") );
-                if [ $? != 0 ]; then exit 1; fi # user aborted
-                if [ "${CREDS[0]}" == "" ]; then
-                        zenity --error --title="Invalid Input" --text="Username must not be empty";
-                        continue;
-                fi
-                if [ "${CREDS[1]}" == "" ]; then
-                        zenity --error --title="Invalid Input" --text="Password must not be empty";
-                        continue;
-                fi
-                if [ "${CREDS[1]}" != "${CREDS[2]}" ]; then
-                        zenity --error --title="Invalid Input" --text="Password repetition does not match password!";
-                        continue;
-                fi
-                break;
-        done
-
-        resultResponse=$(lapasApiAddUser "$lapasPassword" "${CREDS[0]}" "${CREDS[0]}"); resultCode=$?;
-        handleResult "$resultCode" "$resultResponse"; action=$?;
-        if [ $action == 1 ] || [ $action == 2 ]; then continue; fi
-        notify-send -t 3 "Info" "User ${newUserName} was created."
-        if [ -f '/.lapasUser' ]; then
-                # remount root filesystem to force-reload overlay lowerdir from server
-                echo "${lapasPassword}" | su root -c "mount -o remount /" 1> /dev/null 2> /dev/null;
-        fi
-        exit 0;
+	lapasPassword=$(zenity --password --title="Lapas Auth");
+	if [ $? != 0 ]; then exit 1; fi # user aborted
+	errorMessage=$(/lapas/lapas-api-client --auth "$lapasPassword" check-auth 2>&1);
+	if [ $? == 0 ]; then break; fi
+	zenity --error --text "$errorMessage" --title "Authentication Error";
 done
+
+# addUser
+###################################
+# Ask user for new username / new password
+while true; do
+	IFS='|' CREDS=( $(zenity --forms --title "Add User" --text "Add new user" \
+		--add-entry="Username" \
+		--add-password="Password" \
+		--add-password="Password Confirm") );
+	if [ $? != 0 ]; then exit 1; fi # user aborted
+	if [ "${CREDS[0]}" == "" ]; then
+		zenity --error --title="Invalid Input" --text="Username must not be empty";
+		continue;
+	fi
+	if [ "${CREDS[1]}" == "" ]; then
+		zenity --error --title="Invalid Input" --text="Password must not be empty";
+		continue;
+	fi
+	if [ "${CREDS[1]}" != "${CREDS[2]}" ]; then
+		zenity --error --title="Invalid Input" --text="Password repetition does not match password!";
+		continue;
+	fi
+	break;
+done
+
+errorMessage=$(/lapas/lapas-api-client --auth "$lapasPassword" add-user "${CREDS[0]}" "${CREDS[1]}" 2>&1);
+if [ $? != 0 ]; then
+	zenity --error --text "$errorMessage" --title "Error while adding user";
+else
+	notify-send -t 3 "Info" "User ${newUserName} was created.";
+fi
