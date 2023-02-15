@@ -15,7 +15,7 @@ impl UserService {
 
     pub async fn add_user(&self, username: String, password: String) -> Result<()> {
         let mut error_str = String::new();
-        for i in 0..4 {
+        for i in 0..5 {
             error_str += &format!("####################\nAttempt {}/4:\n", i + 1);
             let process = Command::new(&self.add_user_bin)
                 .arg(&username)
