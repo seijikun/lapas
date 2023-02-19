@@ -44,6 +44,13 @@ menuentry 'User-${kernelVersion}' {
         initrd /boot/ramdisk.img
         echo "Starting ..."
 }
+menuentry 'User-${kernelVersion} NVIDIA' {
+        echo "Loading Kernel ${kernelVersion} ..."
+        linux /boot/bzImage-${kernelVersion} ${GUEST_USER_OPTIONS} init=/lib/systemd/systemd lapas_nvidia nouveau.blacklist=yes
+        echo "Loading ramdisk..."
+        initrd /boot/ramdisk.img
+        echo "Starting ..."
+}
 menuentry 'Admin-${kernelVersion}' {
         echo "Loading Kernel ${kernelVersion} ..."
         linux /boot/bzImage-${kernelVersion} ${GUEST_ADMIN_OPTIONS} init=/lib/systemd/systemd
