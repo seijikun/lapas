@@ -38,11 +38,16 @@ function addKernelToBootMenu() {
 	cat <<EOF >> "${LAPAS_TFTP_DIR}/grub2/grub.cfg"
 #############################################################################
 menuentry 'User-${kernelVersion}' {
-	linux /boot/bzImage-${kernelVersion} ${GUEST_USER_OPTIONS} init=/lib/systemd/systemd
-	initrd /boot/ramdisk.img
+        echo "Loading Kernel ${kernelVersion} ..."
+        linux /boot/bzImage-${kernelVersion} ${GUEST_USER_OPTIONS} init=/lib/systemd/systemd
+        echo "Loading ramdisk..."
+        initrd /boot/ramdisk.img
+        echo "Starting ..."
 }
 menuentry 'Admin-${kernelVersion}' {
-	linux /boot/bzImage-${kernelVersion} ${GUEST_ADMIN_OPTIONS} init=/lib/systemd/systemd
+        echo "Loading Kernel ${kernelVersion} ..."
+        linux /boot/bzImage-${kernelVersion} ${GUEST_ADMIN_OPTIONS} init=/lib/systemd/systemd
+        echo "Starting ..."
 }
 
 EOF
