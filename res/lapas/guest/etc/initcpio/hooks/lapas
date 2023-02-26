@@ -1,0 +1,20 @@
+run_hook() {
+	ipconfig "ip=${ip}"
+	rootfstype="overlay"
+	mount_handler="lapas_mount_handler"
+}
+
+lapas_mount_handler() {
+	if [ "${lapas_mode}" == "admin" ]; then
+		mount.nfs4 @@LAPAS_NET_IP@@:/guest "$1" -o rw,vers=@@LAPAS_NFS_VERSION@@
+	else
+		mkdir /dev/nfs
+		mkdir /tmproot
+		mount -t tmpfs none /tmproot
+		mkdir /tmproot/upper
+		mkdir /tmproot/work
+		touch /tmproot/upper/.lapasUser
+		mount.nfs4 @@LAPAS_NET_IP@@:/guest /dev/nfs -o ro,@@LAPAS_NFS_USER_MOUNTOPTIONS@@
+		mount -t overlay overlay -o lowerdir=/dev/nfs,upperdir=/tmproot/upper,workdir=/tmproot/work "$1"
+	fi
+}

@@ -209,7 +209,7 @@ logSection "Extracting LAPAS resources..."
 streamBinaryPayload "${SELF_PATH}" "__PAYLOAD_LAPAS_RESOURCES__" | base64 -d | gzip -d | tar -x --no-same-owner || exit 1;
 runSilentUnfallible configureOptionsToFile "${LAPAS_SCRIPTS_DIR}/config" "${LAPAS_CONFIGURATION_OPTIONS[@]}";
 runSilentUnfallible configureFileInplace "${LAPAS_GUESTROOT_DIR}/etc/resolv.conf" "${LAPAS_CONFIGURATION_OPTIONS[@]}";
-runSilentUnfallible configureFileInplace "${LAPAS_GUESTROOT_DIR}/etc/initcpio/hooks/remountoverlay" "${LAPAS_CONFIGURATION_OPTIONS[@]}";
+runSilentUnfallible configureFileInplace "${LAPAS_GUESTROOT_DIR}/etc/initcpio/hooks/lapas" "${LAPAS_CONFIGURATION_OPTIONS[@]}";
 runSilentUnfallible configureFileInplace "${LAPAS_GUESTROOT_DIR}/etc/systemd/system/lapas-firstboot-setup.service" "${LAPAS_CONFIGURATION_OPTIONS[@]}";
 runSilentUnfallible chown -R 1000:1000 "${LAPAS_GUESTROOT_DIR}/mnt/homeBase";
 runSilentUnfallible chmod a+r "${LAPAS_GUESTROOT_DIR}/lapas/setupShell.sh";
@@ -258,6 +258,9 @@ logSection "Compiling and Installing your kernel...";
 logSection "Setting up Guest OS Boot Process..."
 ################################################################################################
 runSilentUnfallible grub-mknetdir --net-directory="${LAPAS_TFTP_DIR}" --subdir=grub2;
+echo "${LAPAS_GUESTROOT_DIR}/boot ${LAPAS_TFTP_DIR}/boot none bind 0 0" >> "/etc/fstab" || exit 1;
+runSilentUnfallible mount -o bind "${LAPAS_GUESTROOT_DIR}/boot" "${LAPAS_TFTP_DIR}/boot";
+
 cat <<EOF >> "${LAPAS_GUESTROOT_DIR}/etc/fstab"
 ${LAPAS_NET_IP}:/homes      /mnt/homes      nfs     ${LAPAS_NFS_USER_MOUNTOPTIONS} 0 0
 EOF
@@ -275,10 +278,6 @@ pushd "${LAPAS_GUESTROOT_DIR}/lapas/drivers/nvidia" || exit 1;
 	wget "https://us.download.nvidia.com/XFree86/Linux-x86_64/${LAPAS_GUEST_NVIDIADRIVER_VERSION}/NVIDIA-Linux-x86_64-${LAPAS_GUEST_NVIDIADRIVER_VERSION}.run";
 popd || exit 1;
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable lapas-driver-nvidia;
-
-logSubsection "Generating Guest Ramdisk..."
-# we intentionally keep this ramdisk basically empty, so we don't have to rebuild it with every new kernel
-runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" mkinitcpio -k "${LAPAS_GUEST_KERNEL_VERSION}" -c /lapas/mkinitcpio.conf -g /boot/ramdisk.img;
 
 logSubsection "Setting up UI, User & Home System"
 # auto-start display manager, create management user and home folder system with all mount points
