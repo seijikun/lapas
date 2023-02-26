@@ -49,6 +49,7 @@ base:keep user:keep .config/xfce4/panel
 # Always provided by base
 # User-specific changes are forbidden and rolled back on any login
 base:keep user:delete .local/share/applications
+base:keep user:delete .config/autostart/xfce4-screensaver.desktop
 
 
 # Folder with LAPAS-Distribution specific stuff like scripts
