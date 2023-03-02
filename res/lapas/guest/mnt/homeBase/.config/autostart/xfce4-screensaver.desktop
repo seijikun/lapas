@@ -1,7 +1,0 @@
-# This disables the screensaver to autostart
-# Since all users have the same uid, the xfce4-screensaver gets confused and only accepts the
-# password of the first user with uid 1000 (which is lapas).
-# So after the screensaver activated, you have to enter the administration password.
-# For now, this is a workaround. Have to wait for the uid mapping of overlayfs (see TODO in lapas.sh)
-[Desktop Entry]
-Hidden=true

@@ -13,7 +13,7 @@ if [ "$userName" == "" ];then
 fi
 
 cd "${LAPAS_GUESTROOT_DIR}" || exit 1;
-./bin/arch-chroot ./ useradd -d "/home/${userName}" -g lanparty -M -o -u 1000 "$userName" || exit $?;
+./bin/arch-chroot ./ useradd -d "/home/${userName}" -g lanparty -M "$userName" || exit $?;
 if [ "$password" != "" ]; then
 	yes "$password" | ./bin/arch-chroot ./ passwd "$userName" || exit $?;
 else

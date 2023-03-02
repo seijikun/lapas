@@ -4,6 +4,7 @@ function runSilentUnfallible() {
 	resultCode="$?";
 	if [ "$resultCode" != "0" ]; then
 		logError "Command: > $@ < exited unexpectedly with error code: $resultCode";
+		logError "PWD: ${PWD}";
 		logError "Command-Output:";
 		logError "#####################"
 		logError "${cmdOutput}";

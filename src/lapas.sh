@@ -252,6 +252,14 @@ done
 logSection "Compiling and Installing your kernel...";
 "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" bash -c "cd ${KERNEL_DIR} && make -j$(nproc) && make modules_install" || exit 1;
 
+logSubsection "Compiling and Installing bindfs...";
+#bindfs is not in arch repo, so we need to build from source
+mkdir -p "${LAPAS_GUESTROOT_DIR}/lapas/bindfs";
+pushd "${LAPAS_GUESTROOT_DIR}/lapas/bindfs" || exit 1;
+	wget https://bindfs.org/downloads/bindfs-1.17.2.tar.gz || exit 1;
+	runSilentUnfallible tar -xpf ./bindfs-1.17.2.tar.gz;
+	"${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" bash -c "cd /lapas/bindfs/bindfs-1.17.2 && ./configure && make && make install" || exit 1;
+popd || exit 1;
 
 
 ################################################################################################
@@ -280,12 +288,14 @@ popd || exit 1;
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable lapas-driver-nvidia;
 
 logSubsection "Setting up UI, User & Home System"
-# auto-start display manager, create management user and home folder system with all mount points
-cat <<EOF >> "${LAPAS_GUESTROOT_DIR}/etc/pam.d/system-login"
-session       required   pam_exec.so          stdout /lapas/mountHome.sh
-EOF
+# configuring pam service to manage user homefolders for players
+PATCHED_PAM_SYSTEM_LOGIN_CONTENTS=$(awk '/^session.*system-auth$/ { print print "session    required   pam_exec.so	stdout /lapas/mountHome.sh"; print; next }1' "${LAPAS_GUESTROOT_DIR}/etc/pam.d/system-login") || exit 1;
+echo -n "$PATCHED_PAM_SYSTEM_LOGIN_CONTENTS" > "${LAPAS_GUESTROOT_DIR}/etc/pam.d/system-login" || exit 1;
+
 ##############################################
+# configure autostart of login manager
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable lightdm;
+# setup base user
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" groupadd --gid 1000 lanparty;
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" useradd --gid lanparty --home-dir /mnt/homeBase --create-home --uid 1000 lapas;
 "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" bash -c "yes \"${LAPAS_PASSWORD}\" | passwd lapas" || exit 1;
@@ -306,6 +316,7 @@ for netDev in "${LAPAS_NIC_INTERNAL[@]}"; do
 done
 runSilentUnfallible systemctl disable networking # disable Debian networking
 runSilentUnfallible systemctl enable systemd-networkd
+runSilentUnfallible systemctl enable systemd-resolved
 
 
 logSubsection "Configuring DHCP Server"
@@ -367,7 +378,8 @@ logSection "Starting LAPAS Services...";
 ################################################################################################
 runSilentUnfallible systemctl stop networking
 sleep 2;
-runSilentUnfallible systemctl restart systemd-networkd
+runSilentUnfallible systemctl restart systemd-networkd;
+runSilentUnfallible systemctl restart systemd-resolved;
 uiAwaitLinkStateUp "${LAPAS_NIC_UPSTREAM}" "${LAPAS_NIC_INTERNAL[@]}" "lapas" || exit 1;
 
 runSilentUnfallible systemctl restart ntp;

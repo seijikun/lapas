@@ -40,6 +40,7 @@ pub(crate) async fn run(args: &CliArgs) -> Result<()> {
 
 async fn handle_root_changed() {
     println!("[Event] Root filesystem changed");
+    tokio::time::sleep(Duration::from_secs(2)).await;
     println!("Remounting root filesystem...");
     let child = Command::new("/usr/bin/mount")
         .args(&["-o", "remount", "/"])
