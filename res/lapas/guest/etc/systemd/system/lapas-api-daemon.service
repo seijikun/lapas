@@ -1,12 +1,12 @@
 [Unit]
 After=network.target
+# lapas-api-daemon provides authentication services, so start before
+# authentication is required by the system
+Before=getty.service display-manager.service
 
 [Service]
 User=root
-Type=simple
-Restart=on-failure
-RestartSec=1s
-StartLimitInterval=0
+Type=notify
 EnvironmentFile=/lapas/apiserver_root_nonce.env
 ExecStart=/lapas/lapas-api-client daemon
 

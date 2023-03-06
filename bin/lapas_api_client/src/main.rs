@@ -1,20 +1,22 @@
 mod daemon;
 
 use anyhow::{anyhow, Result, Context};
-use tokio::{net::TcpStream, io::{AsyncWriteExt, AsyncReadExt}};
-use lapas_api_proto::{LapasProtocol, ProtoSerde, ApiPassword};
+use tokio::{net::TcpStream, io::AsyncWriteExt};
+use lapas_api_proto::{LapasProtocol, ProtoSerde, ApiAuth};
 use clap::{Parser, Subcommand};
 
-//TODO: improve error handling with thiserror instead of anyhow? (different return values for different errors)
-
-async fn perform_request<W: AsyncReadExt + AsyncWriteExt + Send + Unpin>(stream: &mut W, request: LapasProtocol) -> Result<std::result::Result<(), String>> {
-    request.encode(stream).await?;
-    let response = LapasProtocol::decode(stream).await?;
-    if let LapasProtocol::ResponseResult { result } = response {
-        Ok(result)
-    } else {
-        Err(anyhow!("Received unexpected packet"))
-    }
+macro_rules! perform_request {
+    ($connection:expr, $response_pkt:ident = $req_pkt:expr) => {
+        {
+            $req_pkt.encode($connection).await?;
+            let response = LapasProtocol::decode($connection).await?;
+            if let LapasProtocol::$response_pkt { result } = response {
+                result
+            } else {
+                return Err(anyhow!("Received unexpected response"));
+            }
+        }
+    };
 }
 
 
@@ -60,49 +62,77 @@ enum ClientCommand {
     AddUser {
         username: String,
         password: String
+    },
+    /// Display a list of all registered players
+    ListUsers
+}
+
+fn args_to_auth(args: &CliArgs) -> Result<ApiAuth> {
+    // use one of the supplied authentication mechanisms (prefer root_nonce).
+    match (&args.api_password, &args.root_nonce) {
+        (_, Some(root_nonce)) => Ok(ApiAuth::RootNonce(root_nonce.clone())),
+        (Some(api_password), _) => Ok(ApiAuth::Password(api_password.clone())),
+        _ => Err(anyhow!("This action requires authentication"))
     }
 }
 
-async fn connect_and_authenticate(args: &CliArgs) -> Result<TcpStream> {
+async fn lapas_connect(args: &CliArgs) -> Result<TcpStream> {
     let mut stream = TcpStream::connect(format!("{}:{}", args.api_host, args.api_port)).await?;
-    // use one of the supplied authentication mechanisms (prefer root_nonce).
-    let password = match (&args.api_password, &args.root_nonce) {
-        (_, Some(root_nonce)) => ApiPassword::RootNonce(root_nonce.clone()),
-        (Some(api_password), _) => ApiPassword::Plain(api_password.clone()),
-        _ => unreachable!()
-    };
-    perform_request(
-        &mut stream,
-        LapasProtocol::RequestHello { version: lapas_api_proto::VERSION, password }
-    ).await.context("Login")?.map_err(|msg| anyhow!(msg))?;
-    Ok(stream)
+    LapasProtocol::ControlHandshake { version: lapas_api_proto::VERSION }.encode(&mut stream).await?;
+
+    let response = LapasProtocol::decode(&mut stream).await?;
+    match response {
+        LapasProtocol::ControlHandshakeResponse { result } => {
+            match result {
+                Ok(_) => Ok(stream),
+                Err(e) => Err(anyhow!("Conncting to lapas api server failed: {}", e))
+            }
+        },
+        _ => Err(anyhow!("Received unexpected response"))
+    }
 }
 
 
-async fn cmd_check_auth(args: &CliArgs) -> Result<()> {
-    let mut connection = connect_and_authenticate(args).await?;
-    let _ = connection.shutdown().await;
+async fn cmd_check_auth(args: &CliArgs, connection: &mut TcpStream) -> Result<()> {
+    let result = perform_request!(connection, ControlCheckAuthResponse = LapasProtocol::ControlCheckAuth { auth: args_to_auth(args)? });
+    result
+        .map_err(|e| anyhow!(e))
+        .context("Checking API authentication")?;
     println!("Authentication Successful");
     Ok(())
 }
 
-async fn cmd_add_dns_mapping(args: &CliArgs, username: &str) -> Result<()> {
-    let mut connection = connect_and_authenticate(args).await?;
-    perform_request(
-        &mut connection,
-        LapasProtocol::RequestDnsMapping { username: username.to_owned() }
-    ).await?.map_err(|e| anyhow!(e)).context("Adding DNS Mapping for this machine failed")?;
+async fn cmd_add_dns_mapping(args: &CliArgs, connection: &mut TcpStream, username: &str) -> Result<()> {
+    let auth = args_to_auth(args)?;
+    let result = perform_request!(connection,
+        UserDnsMappingResponse = LapasProtocol::UserDnsMapping { auth, username: username.to_owned() });
+    result
+        .map_err(|e| anyhow!(e))
+        .context("Adding DNS Mapping for this machine")?;
     println!("DNS Mapping for user: {} to this device successfully created", username);
     Ok(())
 }
 
-async fn cmd_add_user(args: &CliArgs, username: &str, password: &str) -> Result<()> {
-    let mut connection = connect_and_authenticate(args).await?;
-    perform_request(
-        &mut connection,
-        LapasProtocol::RequestAddUser { username: username.to_owned(), password: password.to_owned() }
-    ).await?.map_err(|e| anyhow!(e)).context("Adding user failed")?;
+async fn cmd_add_user(args: &CliArgs, connection: &mut TcpStream, username: &str, password: &str) -> Result<()> {
+    let auth = args_to_auth(args)?;
+    let (new_username, new_password) = (username.to_owned(), password.to_owned());
+    let result = perform_request!(connection,
+        UserRegisterResponse = LapasProtocol::UserRegister { auth, new_username, new_password });
+    result
+        .map_err(|e| anyhow!(e))
+        .context("Registering new user")?;
     println!("User: {} was successfully created", username);
+    Ok(())
+}
+
+async fn cmd_list_users(connection: &mut TcpStream) -> Result<()> {
+    let mut users = perform_request!(connection, PasswdGetListResponse = LapasProtocol::PasswdGetList)
+        .map_err(|e| anyhow!(e))
+        .context("Acquiring list of registered users")?;
+    users.sort_by_key(|u| u.id);
+    for user in users {
+        println!("{}: {}", user.id, user.name);
+    }
     Ok(())
 }
 
@@ -114,11 +144,18 @@ async fn main() -> Result<()> {
         return Err(anyhow!("Authentication option required"));
     }
 
-    match &args.command {
-        ClientCommand::Daemon => daemon::run(&args).await?,
-        ClientCommand::CheckAuth => cmd_check_auth(&args).await?,
-        ClientCommand::AddDnsMapping { username } => cmd_add_dns_mapping(&args, username).await?,
-        ClientCommand::AddUser { username, password } => cmd_add_user(&args, username, password).await?,
+    if let ClientCommand::Daemon = &args.command {
+        daemon::run(&args).await
+    } else {
+        let mut connection = lapas_connect(&args).await?;
+        let result = match &args.command {
+            ClientCommand::CheckAuth => cmd_check_auth(&args, &mut connection).await,
+            ClientCommand::AddDnsMapping { username } => cmd_add_dns_mapping(&args, &mut connection, username).await,
+            ClientCommand::AddUser { username, password } => cmd_add_user(&args, &mut connection, username, password).await,
+            ClientCommand::ListUsers => cmd_list_users(&mut connection).await,
+            _ => unreachable!()
+        };
+        let _ = connection.shutdown().await;
+        result
     }
-    Ok(())
 }

@@ -1,4 +1,5 @@
-use tokio::io::{AsyncReadExt, self, AsyncWriteExt};
+use chrono::{DateTime, Utc};
+use tokio::{io::{AsyncReadExt, self, AsyncWriteExt}};
 use thiserror::Error;
 use paste::paste;
 
@@ -97,6 +98,25 @@ impl<T: ProtoSerde> ProtoSerde for Option<T> {
 }
 
 #[async_trait::async_trait]
+impl<T: ProtoSerde + Send> ProtoSerde for Vec<T> {
+    async fn decode<R: AsyncReadExt + Send + Unpin>(reader: &mut R) -> Result<Self, LapasProtocolError> {
+        let cnt = reader.read_u64().await?;
+        let mut result = Vec::new();
+        for _ in 0..cnt {
+            result.push(T::decode(reader).await?);
+        }
+        Ok(result)
+    }
+    async fn encode<W: AsyncWriteExt + Send + Unpin>(&self, writer: &mut W) -> Result<(), LapasProtocolError> {
+        writer.write_u64(self.len() as u64).await?;
+        for val in self.iter() {
+            val.encode(writer).await?;
+        }
+        Ok(())
+    }
+}
+
+#[async_trait::async_trait]
 impl ProtoSerde for String {
     async fn decode<R: AsyncReadExt + Send + Unpin>(reader: &mut R) -> Result<Self, LapasProtocolError> {
         let len = reader.read_u32().await?;
@@ -115,24 +135,37 @@ impl ProtoSerde for String {
     }
 }
 
+#[async_trait::async_trait]
+impl ProtoSerde for DateTime<Utc> {
+    async fn decode<R: AsyncReadExt + Send + Unpin>(reader: &mut R) -> Result<Self, LapasProtocolError> {
+        let ts = DateTime::parse_from_rfc3339(&String::decode(reader).await?)
+            .map_err(|e| LapasProtocolError::ProtocolError(format!("Failed to parse timestamp:\n{}", e)))?;
+        Ok(ts.into())
+    }
+    async fn encode<W: AsyncWriteExt + Send + Unpin>(&self, writer: &mut W) -> Result<(), LapasProtocolError> {
+        self.to_rfc3339().encode(writer).await?;
+        Ok(())
+    }
+}
+
 macro_rules! define_protocol {
     (
         proto $protoname:ident {
             $(
-                $packetname:ident {
+                $packetname:ident $({
                     $(
                         $fieldname:ident : $fieldtype:ty
                     ),*
-                }
+                })?
             ),*
         }
     ) => {
         #[derive(Debug, Clone)]
         pub enum $protoname {
             $(
-                $packetname {
+                $packetname $({
                     $($fieldname : $fieldtype,)*
-                }
+                })?
             ,)*
         }
 
@@ -145,11 +178,11 @@ macro_rules! define_protocol {
                 $(
                     if tag == pkt_tag.next().unwrap() {
                         return Ok(
-                            $protoname::$packetname {
+                            $protoname::$packetname $({
                                 $(
                                     $fieldname: <$fieldtype>::decode(reader).await?,
                                 )*
-                            }
+                            })?
                         );
                     }
                 )*
@@ -159,11 +192,11 @@ macro_rules! define_protocol {
             async fn encode<W: tokio::io::AsyncWriteExt + Send + Unpin>(&self, writer: &mut W) -> Result<(), LapasProtocolError> {
                 let mut pkt_tag = 0u32;
                 $(
-                    if let $protoname::$packetname { $($fieldname),* } = self {
+                    if let $protoname::$packetname $({ $($fieldname),* })? = self {
                         writer.write_u32(pkt_tag).await?;
-                        $(
+                        $($(
                             $fieldname.encode(writer).await?;
-                        )*
+                        )*)?
                         return Ok(())
                     } else {
                         pkt_tag += 1;

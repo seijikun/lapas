@@ -1,0 +1,24 @@
+[package]
+name = "lapas_nss"
+version = "0.1.0"
+authors = ["Markus Ebner <hiwatari.seiji@gmail.com>"]
+edition = "2021"
+
+[dependencies]
+libc = "0.2.71"
+lazy_static = "1.4.0"
+paste = "0.1.18"
+libnss = { git = "https://github.com/csnewman/libnss-rs.git" }
+anyhow = "1"
+chrono = "0"
+tokio = { version = "1", features = ["rt", "net", "fs"] }
+lapas-api-proto = { path = "../lapas_api_proto" }
+
+[lib]
+name = "nss_lapas"
+crate-type = [ "cdylib" ]
+
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1

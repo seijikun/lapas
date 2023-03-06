@@ -21,5 +21,11 @@ cp bin/lapas_api_client/target/x86_64-unknown-linux-musl/release/lapas-api-clien
 chmod a+x res/lapas/guest/lapas/lapas-api-client;
 
 
+pushd bin/lapas_nss;
+cargo build --release || exit $?;
+popd;
+cp bin/lapas_nss/target/release/libnss_lapas.so res/lapas/guest/libnss_lapas.so.2 || exit $?;
+
+
 # package installer script
 python3 ./make.py > ./lapas_installer.sh

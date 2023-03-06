@@ -8,9 +8,10 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1"
-tokio = { version = "1", features = ["rt", "macros", "net", "time", "sync", "process", "io-util"] }
+tokio = { version = "1", features = ["rt", "macros", "fs", "net", "time", "sync", "process", "io-util"] }
 lapas-api-proto = { path = "../lapas_api_proto" }
 clap = { version = "4", features = ["derive", "env"] }
+sd-notify = "0"
 
 [profile.release]
 opt-level = "s"

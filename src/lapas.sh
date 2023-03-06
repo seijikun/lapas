@@ -289,7 +289,9 @@ runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_
 
 logSubsection "Setting up UI, User & Home System"
 # configuring pam service to manage user homefolders for players
-PATCHED_PAM_SYSTEM_LOGIN_CONTENTS=$(awk '/^session.*system-auth$/ { print print "session    required   pam_exec.so	stdout /lapas/mountHome.sh"; print; next }1' "${LAPAS_GUESTROOT_DIR}/etc/pam.d/system-login") || exit 1;
+PAM_SYSTEM_LOGIN_LAPAS_LINES="session [success=1 default=ignore]  pam_succeed_if.so  service = systemd-user quiet
+session    required   pam_exec.so	stdout /lapas/mountHome.sh";
+PATCHED_PAM_SYSTEM_LOGIN_CONTENTS=$(awk -v lapasLines="$PAM_SYSTEM_LOGIN_LAPAS_LINES" '/^session.*system-auth$/ { print lapasLines; print; next }1' "${LAPAS_GUESTROOT_DIR}/etc/pam.d/system-login") || exit 1;
 echo -n "$PATCHED_PAM_SYSTEM_LOGIN_CONTENTS" > "${LAPAS_GUESTROOT_DIR}/etc/pam.d/system-login" || exit 1;
 
 ##############################################
@@ -299,6 +301,12 @@ runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" groupadd --gid 1000 lanparty;
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" useradd --gid lanparty --home-dir /mnt/homeBase --create-home --uid 1000 lapas;
 "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" bash -c "yes \"${LAPAS_PASSWORD}\" | passwd lapas" || exit 1;
+# setup lapas user management
+runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" install -m 0644 /libnss_lapas.so.2 /lib;
+rm "${LAPAS_GUESTROOT_DIR}/libnss_lapas.so.2";
+runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" /sbin/ldconfig -n /lib /usr/lib;
+
+# setup boot menu and install kernel/ramdisk
 runSilentUnfallible "${LAPAS_SCRIPTS_DIR}/updateBootmenus.sh";
 
 
