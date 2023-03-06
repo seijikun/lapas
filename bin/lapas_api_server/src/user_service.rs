@@ -1,4 +1,4 @@
-use std::path::{PathBuf, Path};
+use std::{path::{PathBuf, Path}, os::unix::prelude::PermissionsExt};
 use chrono::{DateTime, Utc};
 use lapas_api_proto::{UserId, LapasUserPasswd, LapasUserShadow};
 use rand::{distributions::Alphanumeric, Rng};
@@ -44,6 +44,12 @@ async fn write_user_index(path: &Path, index: &UserIndex) -> Result<()> {
     let mut file = File::create(path).await?;
     let file_data = serde_json::to_string_pretty(&index)?;
     file.write_all(file_data.as_bytes()).await?;
+
+    // fix file permissions
+    let mut index_file_permissions = file.metadata().await?.permissions();
+    index_file_permissions.set_mode(0);
+    file.set_permissions(index_file_permissions).await?;
+
     Ok(())
 }
 
