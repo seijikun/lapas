@@ -103,6 +103,8 @@ function assertBottleExists() {
 }
 function selectBottle() {
 	assertBottleExists "$1";
+	if [ "$WM_SELECTED_BOTTLE" == "$1" ]; then return 0; fi
+
 	if [ ! -f $(bottleGetConfigPath "$1") ]; then
 		echo "The selected bottle is not valid. It's missing the bottle.conf file!"; exit 1; 
 	fi
@@ -118,6 +120,7 @@ function selectBottle() {
 		export PATH="${runnerPath}/bin:${PATH}";
 		export LD_LIBRARY_PATH="${runnerPath}/lib:${runnerPath}/lib64";
 	fi
+	WM_SELECTED_BOTTLE="$1";
 }
 function assertShortcutExists() {
 	assertBottleExists "$1";
@@ -215,12 +218,12 @@ function wmBeforeStart() {
 function wmAfterInitialProcessExit() {
 	echo "###############################";
 	echo "Initial Wine Process exited.";
+	helperResolutionRestore;
 }
 
 function wmAfterStop() {
 	echo "###############################";
 	echo "Program exited.";
-	helperResolutionRestore;
 }
 
 EOF
