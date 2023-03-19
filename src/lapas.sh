@@ -338,6 +338,7 @@ logSubsection "Setting up DNS and TFTP Servers...";
 cat <<EOF >> "/etc/dnsmasq.conf"
 # enable DNS on our internal lapas bond network
 interface=lapas
+bind-dynamic
 # disable DHCP (dnsmasq is a little too weak on the feature-front for our dhcp needs)
 no-dhcp-interface=
 # use dnsmasq as tftp server
