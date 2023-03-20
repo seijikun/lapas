@@ -61,8 +61,20 @@ graph LR
 ```
 
 #### Guest OS Architecture
-The Guest OS's filesystem architecture differs between User-Mode and Admin-Mode.
-The following graph shows the whole filesystem architecture in Admin-Mode:
+The guest operating system can be booted into two major modes. Admin-Mode, and User-Mode.
+
+**Admin-Mode** is used to make permanent changes to the guest operating system. In this mode, the guest's root filesystem
+is mounted read/write and only the default-user (`lapas`), as well as system users (`root` etc.) are permited to login.
+
+**User-Mode** is meant for "production"-use. This is the boot option that players login with. In this mode, no permanent
+changes can be made to the system. This is handled by mounting the guest root filesystem read-only, and overlaying it with a
+tmpfs, such that changes can be made - but only in each guest's RAM. In this mode, normal player users may login. Since players
+need permanent storage, for stuff like their game progress or video configuration, they are handled specially. Each player gets
+a sparce file, formatted with ext4 that will contain their player-specific files, layered on top of the default-user's (`lapas`)
+home directory. To handle permissions properly (wine is very bitchy here), the default-user's home directory is lazily [bindfs](https://bindfs.org/)-mounted
+for every player to login on a machine. Like this, all files within the player's home directory will seem to belong to him, even
+when they actually come from the default-user's home directory. Like this, the default-user can setup wineprefixes that can then
+simply be used by every player. Here is a graph of the whole filesystem architecture in User-Mode when a normal player `playerX` logs in:
 ```mermaid
 graph BT
     classDef ext4Img fill:#aa3333;
@@ -72,57 +84,7 @@ graph BT
     nfsServer(NFS-Server);
     nfsServer -.-> homes:::nfsShare;
     nfsServer -.-> guest:::nfsShare;
-    subgraph "Guest OS Filesystem [Admin-Mode]"
-        guest; homes;
-        guest --> guestLapas["/lapas"];
-        guest --> guestLib["/lib"];
-        guest --> guestEtc[...];
-        guest --> guestMnt["/mnt"];
-        guest --> guestHome["/home"];
-
-        guestMnt --> guestMntHomes["/homes"]:::mountPoint;
-        guestMnt --> guestMntHomeBase["/homeBase"];
-        guestMnt --> guestMntOverlays["/.overlays"];
-
-        homes -..->|mounted to| guestMntHomes;
-        guestMntHomes --> playerX:::ext4Img;
-        
-        guestMntOverlays ---> guestMntOverlaysPlayerX[playerX]:::mountPoint;
-        guestMntOverlaysPlayerX --> userHomeUpper["/upper"];
-        guestMntOverlaysPlayerX --> userStorageWork["/work"];
-
-        guestHome ------> guestHomePlayerX[playerX]:::mountPoint;
-
-        playerX -.->|mounted to| guestMntOverlaysPlayerX;
-        userHomeUpper -->|overlayfs\nupper dir| guestHomePlayerX;
-        userStorageWork -->|overlayfs\nwork dir| guestHomePlayerX;
-        guestMntHomeBase ----->|overlayfs\nlower dir| guestHomePlayerX;
-    end
-
-    subgraph "Legend"
-        nfsShare[NFS-Share]:::nfsShare;
-        ext4Img[Ext4 formatted\nUserdata image]:::ext4Img;
-        mountPoint[Mountpoint]:::mountPoint;
-        normalDir[Directory];
-    end
-```
-
-In User-Mode, the guests' root filesystem from the server is mounted readonly, so normal users can't make any permanent changes to the guest OS.
-If 10 players would be logged into the same system with write access to the same network share, hell would break loose.
-Though since getting a system with a pure read-only root filesystem going is hard, a tmpfs is layered on top of the guest rootfilesystem mounted from the server.
-So every player can make local changes to the entire system that are stored in the RAM of their machines.
-The general architecture of the guest filesystem between Admin and User-Mode is the same, the only thing that's different is how the root filesystem is handled.
-This graph shows how User-Mode differs from Admin-Mode, with the identical parts left out:
-```mermaid
-graph BT
-    classDef ext4Img fill:#aa3333;
-    classDef mountPoint fill:#337733;
-    classDef nfsShare fill:#333377;
-
-    nfsServer(NFS-Server);
-    nfsServer -.-> homes:::nfsShare;
-    nfsServer -.-> guest:::nfsShare;
-    subgraph "Guest OS Filesystem [User-Mode]"
+    subgraph "Guest OS Filesystem [Player Handling]"
         guest; homes;
 
         guestRoot["/"];
@@ -131,13 +93,41 @@ graph BT
         guestRootTmpfs --> guestRootTmpsWork["/work"];
         guestRootTmpsUpper -.->|overlay\upper dir| guestRoot;
         guestRootTmpsWork -.->|overlay\nwork dir| guestRoot;
-
         guest -.->|overlay\nlower dir| guestRoot;
+
         guestRoot --> guestLapas["/lapas"];
         guestRoot --> guestLib["/lib"];
         guestRoot --> guestEtc[...];
         guestRoot --> guestMnt["/mnt"];
         guestRoot --> guestHome["/home"];
+
+        guestMnt --> guestMntMounts["/.mounts"];
+        guestMnt --> guestMntHomes["/homes"]:::mountPoint;
+        guestMnt --> guestMntHomeBase["/homeBase"];
+
+        guestMntMounts --> guestMntMountsPlayerX["/playerX"];
+        guestMntMountsPlayerX --> guestMntMountsPlayerXOverlay["/.overlay"]:::mountPoint;
+        guestMntMountsPlayerX --> guestMntMountsPlayerXBase["/.base"]:::mountPoint;
+        guestMntHomeBase -..->|bindfs mounted to\nuid-mapped to playerX| guestMntMountsPlayerXBase;
+
+        guestMntMountsPlayerXOverlay --> userHomeUpper["/upper"];
+        guestMntMountsPlayerXOverlay --> userStorageWork["/work"];
+
+        guestHome ------> guestHomePlayerX["/playerX"]:::mountPoint;
+        homes -..->|mounted to| guestMntHomes;
+        guestMntHomes --> playerX["/playerX"]:::ext4Img;
+
+        playerX -.->|mounted to| guestMntMountsPlayerXOverlay;
+        userHomeUpper -->|overlayfs\nupper dir| guestHomePlayerX;
+        userStorageWork -->|overlayfs\nwork dir| guestHomePlayerX;
+        guestMntMountsPlayerXBase ----->|overlayfs\nlower dir| guestHomePlayerX;
+    end
+
+    subgraph "Legend"
+        nfsShare[NFS-Share]:::nfsShare;
+        ext4Img[Ext4 formatted\nUserdata image]:::ext4Img;
+        mountPoint[Mountpoint]:::mountPoint;
+        normalDir[Directory];
     end
 ```
 
