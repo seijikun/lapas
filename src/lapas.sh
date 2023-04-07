@@ -5,7 +5,7 @@ SELF_PATH=$(realpath "$0");
 
 # CONSTANTS
 ##############################
-LAPAS_SUBNET_REGEX="([0-9]{1,3}\.){3}1/[0-9]{1,2}";
+LAPAS_SUBNET_REGEX="^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\/[0-9]{1,3}$";
 MAC_REGEX="(?:[0-9A-Fa-f]{2}[:-]){5}(?:[0-9A-Fa-f]{2})";
 
 LAPAS_GUEST_KERNEL_VERSION="6.1.6";
@@ -33,6 +33,7 @@ function printHeader() {
 #!import helpers/process.sh
 #!import helpers/system.sh
 #!import helpers/arrays.sh
+#!import helpers/ipcalc.sh
 
 #!import ui/cli.sh
 #!import ui/dialog.sh
@@ -81,13 +82,13 @@ uiSelectNetworkDevices "single" "Select the upstream network card (house network
 Hint: Use 'ethtool --identify <enp...>' in a second terminal to identify the NICs listed here." LAPAS_NIC_UPSTREAM || exit 1;
 uiSelectNetworkDevices "multi" "Select the internal lapas network card(s). If you select multiple NICs, a bond will be created, combining all of them to one large virtual network card.
 Hint: Use 'ethtool --identify <enp...>' in a second terminal to identify the NICs listed here." LAPAS_NIC_INTERNAL || exit 1;
-uiTextInput "Input LAPAS' internal subnet (form: xxx.xxx.xxx.1/yy).\nWARNING: Old games might not handle 10.0.0.0/8 networks very well.\nWARNING:This MUST NOT collidate with your upstream network addresses." "192.168.42.1/24" "${LAPAS_SUBNET_REGEX}" LAPAS_NET_ADDRESS || exit 1;
+uiTextInput "Input LAPAS' internal ip address and subnet (form: xxx.xxx.xxx.1/yy).\nWARNING: Old games might not handle 10.0.0.0/8 networks very well.\nWARNING:This MUST NOT collidate with your upstream network addresses." "192.168.42.1/24" "${LAPAS_SUBNET_REGEX}" LAPAS_NET_ADDRESS || exit 1;
 uiTextInput "Input the password you want to use for all administration accounts." "lapas" ".+" LAPAS_PASSWORD || exit 1;
-LAPAS_NET_IP=${LAPAS_NET_ADDRESS%/*};
-LAPAS_NET_SUBNET_BASEADDRESS="${LAPAS_NET_ADDRESS%.1/*}.0";
-LAPAS_NET_NETMASK=$(netmaskFromBits ${LAPAS_NET_ADDRESS#*/});
-LAPAS_NET_DHCP_ADDRESSES_START="${LAPAS_NET_ADDRESS%.1/*}.10";
-LAPAS_NET_DHCP_ADDRESSES_END="${LAPAS_NET_ADDRESS%.1/*}.254";
+LAPAS_NET_IP=$(fqIpGetIPAddress "$LAPAS_NET_ADDRESS")
+LAPAS_NET_SUBNET_BASEADDRESS=$(fqIpGetSubnetAddress "$LAPAS_NET_ADDRESS");
+LAPAS_NET_NETMASK=$(fqIpGetNetmask "$LAPAS_NET_ADDRESS");
+LAPAS_NET_DHCP_ADDRESSES_START=$(fqIpGetNthUsableHostaddress "$LAPAS_NET_ADDRESS" 10);
+LAPAS_NET_DHCP_ADDRESSES_END=$(fqIpGetLastUsableHostaddress "$LAPAS_NET_ADDRESS");
 LAPAS_NFS_VERSION="4.2";
 LAPAS_NFS_USER_MOUNTOPTIONS="vers=${LAPAS_NFS_VERSION},noatime,nodiratime,nconnect=4";
 

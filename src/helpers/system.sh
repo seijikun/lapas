@@ -20,16 +20,3 @@ function getSystemKeymap() {
 	result="${result#*=\"}";
 	echo "${result%\"}";
 }
-
-
-# converts an int to a netmask as 24 -> 255.255.255.0
-# see: http://filipenf.github.io/2015/12/06/bash-calculating-ip-addresses/
-function netmaskFromBits() {
-    local mask=$((0xffffffff << (32 - $1))); shift
-    local ip n
-    for n in 1 2 3 4; do
-        ip=$((mask & 0xff))${ip:+.}$ip
-        mask=$((mask >> 8))
-    done
-    echo $ip
-}
