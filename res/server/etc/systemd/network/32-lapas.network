@@ -4,8 +4,7 @@ Name=lapas
 [Network]
 BindCarrier=@@LAPAS_NIC_INTERNAL@@
 IPForward=true
-#TODO: IPMasquerade=true seems to have been deprecated in favor of 'both' but that is not yet supported on debian11
-IPMasquerade=true
+IPMasquerade=both
 
 [Address]
 Address=@@LAPAS_NET_ADDRESS@@

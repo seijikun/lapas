@@ -8,8 +8,9 @@ SELF_PATH=$(realpath "$0");
 LAPAS_SUBNET_REGEX="^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\/[0-9]{1,3}$";
 MAC_REGEX="(?:[0-9A-Fa-f]{2}[:-]){5}(?:[0-9A-Fa-f]{2})";
 
-LAPAS_GUEST_KERNEL_VERSION="6.1.6";
-LAPAS_GUEST_NVIDIADRIVER_VERSION="525.89.02"
+LAPAS_GUEST_KERNEL_VERSION="6.8.2"; # https://kernel.org
+LAPAS_GUEST_BINDFS_VERSION="1.17.6"; # https://bindfs.org/downloads/
+LAPAS_GUEST_NVIDIADRIVER_VERSION="550.67" # https://www.nvidia.com/Download/driverResults.aspx/223426/en-us/
 ##############################
 
 
@@ -25,7 +26,7 @@ function printHeader() {
 		░ ░    ░   ▒   ░░         ░   ▒   ░  ░  ░  
 		    ░  ░     ░  ░               ░  ░      ░
 		
-		Installer v0.4
+		Installer v0.5
 	";
 }
 
@@ -63,7 +64,11 @@ logMakeSure "WARNING: This \"distribution\" is not hardened, and not meant for e
 ################################################
 logSection "Preparing environment";
 logInfo "Installing dependencies...";
-runSilentUnfallible apt-get install -y dialog ethtool gdisk dosfstools openssh-server ntp pxelinux libnfs-utils isc-dhcp-server grub-pc-bin grub-efi-amd64-bin grub-efi-ia32-bin binutils nfs-kernel-server dnsmasq;
+# mask the services we want to install because someone at Debian thought it was a good idea
+# to just start them while they are installed (:facepalm:).
+systemctl mask dnsmasq;
+runSilentUnfallible apt-get install -y dialog ethtool gdisk dosfstools openssh-server ntp pxelinux libnfs-utils grub-pc-bin grub-efi-amd64-bin grub-efi-ia32-bin binutils nfs-kernel-server dnsmasq;
+systemctl unmask dnsmasq;
 
 ################################################
 logSection "Configuration";
@@ -219,7 +224,7 @@ pushd "/";
 	streamBinaryPayload "${SELF_PATH}" "__PAYLOAD_SERVER_RESOURCES__" | base64 -d | gzip -d | tar -x --no-same-owner || exit 1;
 popd;
 runSilentUnfallible configureFileInplace /etc/systemd/system/lapas-api-server.service "${LAPAS_CONFIGURATION_OPTIONS[@]}";
-runSilentUnfallible configureFileInplace /etc/dhcp/dhcpd.conf "${LAPAS_CONFIGURATION_OPTIONS[@]}";
+runSilentUnfallible configureFileInplace /etc/dnsmasq.conf "${LAPAS_CONFIGURATION_OPTIONS[@]}";
 runSilentUnfallible configureFileInplace /etc/exports "${LAPAS_CONFIGURATION_OPTIONS[@]}";
 runSilentUnfallible configureFileInplace /etc/systemd/network/20-upstream.network "${LAPAS_CONFIGURATION_OPTIONS[@]}";
 runSilentUnfallible configureFileInplace /etc/systemd/network/30-lapas.netdev "${LAPAS_CONFIGURATION_OPTIONS[@]}";
@@ -251,15 +256,25 @@ while true; do
 done
 
 logSection "Compiling and Installing your kernel...";
-"${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" bash -c "cd ${KERNEL_DIR} && make -j$(nproc) && make modules_install" || exit 1;
+while true; do
+	"${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" bash -c "cd ${KERNEL_DIR} && make -j$(nproc) | tee /tmp/kernel_build.log";
+	echo BUILD_EXIT_CODE=$?;
+	if [ "${BUILD_EXIT_CODE}" == "0" ]; then break; fi
+	LAST_LOG_MSGS=$(tail -n30 /tmp/kernel_build.log);
+	uiYesNo "Kernel Build failed (exit code: ${BUILD_EXIT_CODE})" "Kernel build failed. This happens sometimes and a simple retry can make it work. Do you want to try again?\n\nLast log excerpt:\n${LAST_LOG_MSGS}" resultTryBuildAgain;
+	if [ "$resultTryBuildAgain" == "no" ]; then
+		exit 1;
+	fi
+done
+"${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" bash -c "cd ${KERNEL_DIR} && make modules_install" || exit 1;
 
 logSubsection "Compiling and Installing bindfs...";
 #bindfs is not in arch repo, so we need to build from source
 mkdir -p "${LAPAS_GUESTROOT_DIR}/lapas/bindfs";
 pushd "${LAPAS_GUESTROOT_DIR}/lapas/bindfs" || exit 1;
-	wget https://bindfs.org/downloads/bindfs-1.17.2.tar.gz || exit 1;
-	runSilentUnfallible tar -xpf ./bindfs-1.17.2.tar.gz;
-	"${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" bash -c "cd /lapas/bindfs/bindfs-1.17.2 && ./configure && make && make install" || exit 1;
+	wget https://bindfs.org/downloads/bindfs-${LAPAS_GUEST_BINDFS_VERSION}.tar.gz || exit 1;
+	runSilentUnfallible tar -xpf ./bindfs-${LAPAS_GUEST_BINDFS_VERSION}.tar.gz;
+	"${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" bash -c "cd /lapas/bindfs/bindfs-${LAPAS_GUEST_BINDFS_VERSION} && ./configure && make && make install" || exit 1;
 popd || exit 1;
 
 
@@ -323,30 +338,42 @@ logSubsection "Configuring upstream network nics";
 for netDev in "${LAPAS_NIC_INTERNAL[@]}"; do
 	echo -e "[Match]\nName=${netDev}\n\n[Network]\nBond=lapas" > /etc/systemd/network/31-lapas-${netDev}.network;
 done
+runSilentUnfallible apt-get -y install systemd-resolved;
 runSilentUnfallible systemctl disable networking # disable Debian networking
 runSilentUnfallible systemctl enable systemd-networkd
 runSilentUnfallible systemctl enable systemd-resolved
 
-
-logSubsection "Configuring DHCP Server"
-################################################################################
-echo 'INTERFACESv4="lapas"' >> /etc/default/isc-dhcp-server;
-runSilentUnfallible systemctl enable isc-dhcp-server
-
-
-logSubsection "Setting up DNS and TFTP Servers...";
+logSubsection "Setting up DHCP, DNS and TFTP Servers...";
 ################################################################################
 cat <<EOF >> "/etc/dnsmasq.conf"
-# enable DNS on our internal lapas bond network
+# enable DNS on our internal lapas bond network.
 interface=lapas
-bind-dynamic
-# disable DHCP (dnsmasq is a little too weak on the feature-front for our dhcp needs)
-no-dhcp-interface=
-# use dnsmasq as tftp server
+bind-interfaces
+
+# Configure DHCP with switch depending on requesting system's architecture
+dhcp-match=set:efi-x86_64,option:client-arch,7
+dhcp-match=set:efi-x86_64,option:client-arch,9
+dhcp-match=set:efi-x86,option:client-arch,6
+dhcp-match=set:bios,option:client-arch,0
+dhcp-boot=tag:efi-x86_64,grub2/x86_64-efi/core.efi
+dhcp-boot=tag:efi-x86,grub2/i386-pc/core.0
+dhcp-boot=tag:bios,grub2/i386-pc/core.0
+
+domain=lapas.lan
+# default gateway
+dhcp-option=3,192.168.42.1
+# dns server
+dhcp-option=6,192.168.42.1
+# ntp server
+dhcp-option=42,192.168.42.1
+dhcp-range=192.168.42.10,192.168.42.254
+
 enable-tftp
 tftp-root="${LAPAS_TFTP_DIR}"
 # configure dns resolution
 # disable hosts file because that would announce lapas as 127.0.1.1 (what? lol)
+# Use systemd-resolved local DNS server as external resolver (127.0.0.53).
+server=127.0.0.53
 no-hosts
 local=/${LAPAS_NET_DOMAIN}/
 address=/lapas/${LAPAS_NET_IP}
@@ -364,6 +391,7 @@ runSilentUnfallible mkdir -p "/srv/nfs/guest";
 runSilentUnfallible mkdir -p "/srv/nfs/homes";
 echo "${LAPAS_GUESTROOT_DIR} /srv/nfs/guest none bind 0 0" >> "/etc/fstab" || exit 1;
 echo "${LAPAS_USERHOMES_DIR} /srv/nfs/homes none bind 0 0" >> "/etc/fstab" || exit 1;
+runSilentUnfallible systemctl daemon-reload;
 runSilentUnfallible mount -o bind "${LAPAS_GUESTROOT_DIR}" "/srv/nfs/guest";
 runSilentUnfallible mount -o bind "${LAPAS_USERHOMES_DIR}" "/srv/nfs/homes";
 runSilentUnfallible exportfs -ra;
@@ -372,7 +400,7 @@ runSilentUnfallible systemctl restart nfs-kernel-server;
 
 logSubsection "Setting up NTP...";
 ################################################################################
-runSilentUnfallible systemctl enable ntp;
+runSilentUnfallible systemctl enable ntpsec;
 
 
 logSubsection "Setting up LAPAS API Server...";
@@ -394,7 +422,6 @@ uiAwaitLinkStateUp "${LAPAS_NIC_UPSTREAM}" "${LAPAS_NIC_INTERNAL[@]}" "lapas" ||
 
 runSilentUnfallible systemctl restart ntp;
 runSilentUnfallible systemctl restart dnsmasq;
-runSilentUnfallible systemctl restart isc-dhcp-server
 runSilentUnfallible systemctl start lapas-api-server;
 
 

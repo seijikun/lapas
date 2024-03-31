@@ -55,7 +55,7 @@ function addKernelToBootMenu() {
 #############################################################################
 menuentry 'User-${kernelVersion}' {
 	echo "Loading Kernel ${kernelVersion} [USER] ..."
-	linux /boot/bzImage-${kernelVersion} ${GUEST_USER_OPTIONS} init=/lib/systemd/systemd
+	linux /boot/bzImage-${kernelVersion} ${GUEST_USER_OPTIONS} init=/lib/systemd/systemd nouveau.config=NvGspRm=1
 	echo "Loading Ramdisk ${kernelVersion} ..."
 	initrd /boot/ramdisk-${kernelVersion}
 	echo "Starting ..."

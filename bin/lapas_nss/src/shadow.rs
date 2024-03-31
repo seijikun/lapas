@@ -10,7 +10,7 @@ fn user_to_shadow(user: LapasUserShadow) -> Shadow {
     Shadow {
         name: user.name,
         passwd: user.password_hash,
-        last_change: last_update_days_since_unix,
+        last_change: last_update_days_since_unix as isize,
         change_min_days: 0,
         change_max_days: 99999,
         change_warn_days: 7,

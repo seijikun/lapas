@@ -101,7 +101,13 @@ function assertBottleExists() {
 		exit 1;
 	fi
 }
+function clearBottleSettingsEnv() {
+	unset WINEDLLOVERRIDES;
+	unset WINEARCH;
+	unset WM_RUNTIME;
+}
 function selectBottle() {
+	clearBottleSettingsEnv;
 	assertBottleExists "$1";
 	if [ "$WM_SELECTED_BOTTLE" == "$1" ]; then return 0; fi
 
