@@ -196,7 +196,8 @@ logSubsection "Installing dependencies for minimal LAPAS Guest system"
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" pacman -Syu --noconfirm;
 "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" pacman --noconfirm -S nano base-devel bc wget \
 	mkinitcpio mkinitcpio-nfs-utils linux-firmware nfs-utils \
-	xfce4 xfce4-goodies gvfs xorg-server lightdm lightdm-gtk-greeter pulseaudio pulseaudio-alsa pavucontrol \
+	xorg-server sddm qt5-multimedia qt5-graphicaleffects qt5-quickcontrols qt5-quickcontrols2 qt5-svg gst-plugins-bad gst-plugins-ugly \
+	xfce4 xfce4-goodies gvfs pulseaudio pulseaudio-alsa pavucontrol \
 	firefox geany file-roller openbsd-netcat \
 	wine-staging winetricks vkd3d zenity autorandr \
 	lib32-mesa vulkan-icd-loader lib32-vulkan-icd-loader lib32-vulkan-virtio lib32-vulkan-intel lib32-vulkan-radeon lib32-vulkan-nouveau \
@@ -316,7 +317,7 @@ echo -n "$PATCHED_PAM_SYSTEM_LOGIN_CONTENTS" > "${LAPAS_GUESTROOT_DIR}/etc/pam.d
 
 ##############################################
 # configure autostart of login manager
-runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable lightdm;
+runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable sddm;
 # setup base user
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" groupadd --gid 1000 lanparty;
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" useradd --gid lanparty --home-dir /mnt/homeBase --create-home --uid 1000 lapas;
