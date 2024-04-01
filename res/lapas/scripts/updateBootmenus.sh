@@ -45,8 +45,8 @@ function addKernelToBootMenu() {
 	if [ ! -f "${kernelBinPath}" ]; then return 0; fi
 	cp "${kernelBinPath}" "${LAPAS_GUESTROOT_DIR}/boot/bzImage-${kernelVersion}";
 	echo "Adding ${kernelName} to bootmenus...";
-	if [ ! -f "$kernelRamdiskPath" ] || [ "$kernelBinPath" -nt "$kernelRamdiskPath" ]; then
-		echo "Kernel binary (${kernelVersion}) newer than corresponding ramdisk. Updating ramdisk...";
+	if [ ! -f "$kernelRamdiskPath" ] || [ "$kernelBinPath" -nt "$kernelRamdiskPath" ] || [ "${LAPAS_GUESTROOT_DIR}/lapas/mkinitcpio.conf" -nt "$kernelRamdiskPath" ]; then
+		echo "Something changed, ramdisk recreation necessary. Updating ramdisk...";
 		pushd "${LAPAS_GUESTROOT_DIR}" || exit 1
 			./bin/arch-chroot ./ mkinitcpio -k "$kernelVersion" -c /lapas/mkinitcpio.conf -g "/boot/ramdisk-${kernelVersion}" || exit $?;
 		popd
