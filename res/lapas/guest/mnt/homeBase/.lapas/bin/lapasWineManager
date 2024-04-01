@@ -10,6 +10,13 @@ WM_RUNNERS_DIR="${WM_BASE_DIR}/runners";
 WM_HELPERS_DIR="${WM_BASE_DIR}/helpers";
 WM_PREFIX_DIRNAME="prefix";
 
+# EVENT-HOOK DEFAULT IMPLEMENTATIONS
+#################
+function wmPreparePrefix() { return 0; }
+function wmwmBeforeStart() { return 0; }
+function wmAfterInitialProcessExit() { return 0; }
+function wmAfterStop() { return 0; }
+
 # HELPERS
 #################
 function logBold()      { echo "$(tput bold)$@$(tput sgr0)"; }
@@ -90,11 +97,11 @@ function bottleInit() {
 		ln -s "$newUserSettingsPath" "$userSettingsPath" || { echo "Userdata isolation failed!"; return 1; };
 	fi
 }
-function bottleGetPath() { echo "${WM_BOTTLES_DIR}/$1"; }
-function bottleGetConfigPath() { echo "${WM_BOTTLES_DIR}/$1/bottle.conf"; }
-function bottleGetShortcutPath() { echo "${WM_BOTTLES_DIR}/$1/$2.shortcut"; }
-function bottleGetPrefixPath() { echo "$(bottleGetPath "$1")/${WM_PREFIX_DIRNAME}"; }
-function bottleGetUserdataPath() { echo "${WM_USERDATA_DIR}/$1"; }
+function bottleGetPath() { realpath "${WM_BOTTLES_DIR}/$1"; }
+function bottleGetConfigPath() { realpath "${WM_BOTTLES_DIR}/$1/bottle.conf"; }
+function bottleGetShortcutPath() { realpath "${WM_BOTTLES_DIR}/$1/$2.shortcut"; }
+function bottleGetPrefixPath() { realpath "$(bottleGetPath "$1")/${WM_PREFIX_DIRNAME}"; }
+function bottleGetUserdataPath() { realpath "${WM_USERDATA_DIR}/$1"; }
 function assertBottleExists() {
 	if [ -z "$1" ] || [ ! -d $(bottleGetPath "$1") ]; then
 		echo "The bottle you selected (\"$1\") does not seem to exist! Create it first.";
@@ -244,29 +251,34 @@ function cmdStart() {
 	selectBottle "$bottleName";
 	selectShortcut "$bottleName" "$shortcutName";
 	bottleDir=$(bottleGetPath "$bottleName");
-	prefixDir=$(bottleGetPrefixPath "$bottleName");
+	WM_BOTTLE_PREFIX=$(bottleGetPrefixPath "$bottleName");
 	userDataPath=$(bottleGetUserdataPath "$bottleName");
+	
+	WM_BOTTLE_NAME="$bottleName" WM_BOTTLE_PATH="$bottleDir" WM_SHORTCUT_NAME="$shortcutName" WM_USERDATA_PATH="$userDataPath" \
+		wmPreparePrefix || { echo "User-Hook 'PreparePrefix' exited with error code $?"; exit 1; };
+	WM_BOTTLE_PREFIX=$(bottleGetPrefixPath "$bottleName"); # update
 	
 	bottleInit "$bottleName";
 	
-	workDir="${prefixDir}/${WM_PWD}";
+	WM_BOTTLE_NAME="$bottleName" WM_BOTTLE_PATH="$bottleDir" WM_SHORTCUT_NAME="$shortcutName" WM_USERDATA_PATH="$userDataPath" \
+		wmBeforeStart || { echo "User-Hook 'BeforeStart' exited with error code $?"; exit 1; };
+	
+	workDir="${WM_BOTTLE_PREFIX}/${WM_PWD}";
+	pushd "$workDir" || exit 1 > /dev/null;
 	if [ ! -d "$workDir" ]; then
 		echo "The shortcut's configured working directory [${workDir}] does not exist!"; exit 1;
 	fi
-	binaryPath="${prefixDir}/${WM_BINARY}";
+	binaryPath="${WM_BOTTLE_PREFIX}/${WM_BINARY}";
 	if [ ! -f "$binaryPath" ]; then
 		echo "The shortcut's configured binary [${binaryPath}] does not exist!"; exit 1;
 	fi
 	
-	pushd "$workDir" || exit 1 > /dev/null;
-	WM_BOTTLE_NAME="$bottleName" WM_BOTTLE_PATH="$bottleDir" WM_BOTTLE_PREFIX="$prefixDir" WM_SHORTCUT_NAME="$shortcutName" WM_USERDATA_PATH="$userDataPath" \
-		wmBeforeStart || { echo "User-Hook 'BeforeStart' exited with error code $?"; exit 1; };
 	echo "wine ${binaryPath} ${WM_ARGUMENTS[@]}";
 	wine "${binaryPath}" "${WM_ARGUMENTS[@]}";
-	WM_BOTTLE_NAME="$bottleName" WM_BOTTLE_PATH="$bottleDir" WM_BOTTLE_PREFIX="$prefixDir" WM_SHORTCUT_NAME="$shortcutName" WM_USERDATA_PATH="$userDataPath" \
+	WM_BOTTLE_NAME="$bottleName" WM_BOTTLE_PATH="$bottleDir" WM_SHORTCUT_NAME="$shortcutName" WM_USERDATA_PATH="$userDataPath" \
 		wmAfterInitialProcessExit || { echo "User-Hook 'AfterInitialProcessExit' exited with error code $?"; exit 1; };
 	wineserver -w; # wait for all processes in this bottle to exit
-	WM_BOTTLE_NAME="$bottleName" WM_BOTTLE_PATH="$bottleDir" WM_BOTTLE_PREFIX="$prefixDir" WM_SHORTCUT_NAME="$shortcutName" WM_USERDATA_PATH="$userDataPath" \
+	WM_BOTTLE_NAME="$bottleName" WM_BOTTLE_PATH="$bottleDir" WM_SHORTCUT_NAME="$shortcutName" WM_USERDATA_PATH="$userDataPath" \
 		wmAfterStop || { echo "User-Hook 'AfterStop' exited with error code $?"; exit 1; };
 	popd > /dev/null;
 }
@@ -323,8 +335,7 @@ Icon=${shortcutIcon}
 Name=${WM_SHORTCUT_NAME}
 NoDisplay=false
 StartupNotify=true
-Terminal=0
-TerminalOptions=
+Terminal=false
 Type=Application
 Categories=Game
 EOF
