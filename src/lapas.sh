@@ -258,7 +258,7 @@ done
 logSection "Compiling and Installing your kernel...";
 while true; do
 	"${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" bash -c "cd ${KERNEL_DIR} && make -j$(nproc) | tee /tmp/kernel_build.log";
-	echo BUILD_EXIT_CODE=$?;
+	BUILD_EXIT_CODE=$?;
 	if [ "${BUILD_EXIT_CODE}" == "0" ]; then break; fi
 	LAST_LOG_MSGS=$(tail -n30 /tmp/kernel_build.log);
 	uiYesNo "Kernel Build failed (exit code: ${BUILD_EXIT_CODE})" "Kernel build failed. This happens sometimes and a simple retry can make it work. Do you want to try again?\n\nLast log excerpt:\n${LAST_LOG_MSGS}" resultTryBuildAgain;
@@ -345,41 +345,6 @@ runSilentUnfallible systemctl enable systemd-resolved
 
 logSubsection "Setting up DHCP, DNS and TFTP Servers...";
 ################################################################################
-cat <<EOF >> "/etc/dnsmasq.conf"
-# enable DNS on our internal lapas bond network.
-interface=lapas
-bind-interfaces
-
-# Configure DHCP with switch depending on requesting system's architecture
-dhcp-match=set:efi-x86_64,option:client-arch,7
-dhcp-match=set:efi-x86_64,option:client-arch,9
-dhcp-match=set:efi-x86,option:client-arch,6
-dhcp-match=set:bios,option:client-arch,0
-dhcp-boot=tag:efi-x86_64,grub2/x86_64-efi/core.efi
-dhcp-boot=tag:efi-x86,grub2/i386-pc/core.0
-dhcp-boot=tag:bios,grub2/i386-pc/core.0
-
-domain=lapas.lan
-# default gateway
-dhcp-option=3,192.168.42.1
-# dns server
-dhcp-option=6,192.168.42.1
-# ntp server
-dhcp-option=42,192.168.42.1
-dhcp-range=192.168.42.10,192.168.42.254
-
-enable-tftp
-tftp-root="${LAPAS_TFTP_DIR}"
-# configure dns resolution
-# disable hosts file because that would announce lapas as 127.0.1.1 (what? lol)
-# Use systemd-resolved local DNS server as external resolver (127.0.0.53).
-server=127.0.0.53
-no-hosts
-local=/${LAPAS_NET_DOMAIN}/
-address=/lapas/${LAPAS_NET_IP}
-address=/lapas.${LAPAS_NET_DOMAIN}/${LAPAS_NET_IP}
-hostsdir=${LAPAS_DNS_HOSTMAPPINGS_DIR}
-EOF
 runSilentUnfallible systemctl enable dnsmasq;
 mkdir -p "${LAPAS_DNS_HOSTMAPPINGS_DIR}";
 
