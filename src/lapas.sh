@@ -97,6 +97,8 @@ LAPAS_NET_DHCP_ADDRESSES_END=$(fqIpGetLastUsableHostaddress "$LAPAS_NET_ADDRESS"
 LAPAS_NFS_VERSION="4.2";
 LAPAS_NFS_USER_MOUNTOPTIONS="vers=${LAPAS_NFS_VERSION},noatime,nodiratime,nconnect=4";
 
+# make sure bash arrays are printed space separated
+IFS=' ';
 CONFIGURATION_OVERVIEW="\
 Host System:
 	- Timezone: ${LAPAS_TIMEZONE}
@@ -194,9 +196,11 @@ logSubsection "Installing dependencies for minimal LAPAS Guest system"
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" pacman -Syu --noconfirm;
 "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" pacman --noconfirm -S nano base-devel bc wget \
 	mkinitcpio mkinitcpio-nfs-utils linux-firmware nfs-utils \
-	xfce4 xfce4-goodies gvfs xorg-server lightdm lightdm-gtk-greeter pulseaudio pulseaudio-alsa pavucontrol alsa-oss \
+	xfce4 xfce4-goodies gvfs xorg-server lightdm lightdm-gtk-greeter pulseaudio pulseaudio-alsa pavucontrol \
 	firefox geany file-roller openbsd-netcat \
-	wine-staging winetricks zenity autorandr \
+	wine-staging winetricks vkd3d zenity autorandr \
+	lib32-mesa vulkan-icd-loader lib32-vulkan-icd-loader lib32-vulkan-virtio lib32-vulkan-intel lib32-vulkan-radeon lib32-vulkan-nouveau \
+	gnutls lib32-gnutls alsa-oss sdl12-compat \
 	lib32-libxcomposite lib32-libpulse || exit 1;
 
 
