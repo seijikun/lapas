@@ -43,7 +43,7 @@ function addKernelToBootMenu() {
 	kernelBinPath="${kernelDir}/arch/x86_64/boot/bzImage";
 	kernelRamdiskPath="${LAPAS_GUESTROOT_DIR}/boot/ramdisk-${kernelVersion}";
 	if [ ! -f "${kernelBinPath}" ]; then return 0; fi
-	cp "${kernelBinPath}" "${LAPAS_GUESTROOT_DIR}/boot/bzImage-${kernelVersion}";
+	cp "${kernelBinPath}" "${LAPAS_GUESTROOT_DIR}/boot/vmlinuz-${kernelVersion}";
 	echo "Adding ${kernelName} to bootmenus...";
 	if [ ! -f "$kernelRamdiskPath" ] || [ "$kernelBinPath" -nt "$kernelRamdiskPath" ] || [ "${LAPAS_GUESTROOT_DIR}/lapas/mkinitcpio.conf" -nt "$kernelRamdiskPath" ]; then
 		echo "Something changed, ramdisk recreation necessary. Updating ramdisk...";
@@ -54,22 +54,25 @@ function addKernelToBootMenu() {
 	cat <<EOF >> "${LAPAS_TFTP_DIR}/grub2/grub.cfg"
 #############################################################################
 menuentry 'User-${kernelVersion}' {
+	insmod all_video
+	set gfxpayload=keep
+	
 	echo "Loading Kernel ${kernelVersion} [USER] ..."
-	linux /boot/bzImage-${kernelVersion} ${GUEST_USER_OPTIONS} init=/lib/systemd/systemd nouveau.config=NvGspRm=1
+	linux /boot/vmlinuz-${kernelVersion} ${GUEST_USER_OPTIONS} init=/lib/systemd/systemd nouveau.config=NvGspRm=1
 	echo "Loading Ramdisk ${kernelVersion} ..."
 	initrd /boot/ramdisk-${kernelVersion}
 	echo "Starting ..."
 }
 menuentry 'User-${kernelVersion} NVIDIA' {
 	echo "Loading Kernel ${kernelVersion} [USER NVIDIA] ..."
-	linux /boot/bzImage-${kernelVersion} ${GUEST_USER_OPTIONS} init=/lib/systemd/systemd lapas_nvidia nouveau.blacklist=yes
+	linux /boot/vmlinuz-${kernelVersion} ${GUEST_USER_OPTIONS} init=/lib/systemd/systemd lapas_nvidia nouveau.blacklist=yes
 	echo "Loading Ramdisk ${kernelVersion} ..."
 	initrd /boot/ramdisk-${kernelVersion}
 	echo "Starting ..."
 }
 menuentry 'Admin-${kernelVersion}' {
 	echo "Loading Kernel ${kernelVersion} [ADMIN] ..."
-	linux /boot/bzImage-${kernelVersion} ${GUEST_ADMIN_OPTIONS} init=/lib/systemd/systemd
+	linux /boot/vmlinuz-${kernelVersion} ${GUEST_ADMIN_OPTIONS} init=/lib/systemd/systemd
 	echo "Loading Ramdisk ${kernelVersion} ..."
 	initrd /boot/ramdisk-${kernelVersion}
 	echo "Starting ..."
