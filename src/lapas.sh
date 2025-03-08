@@ -169,9 +169,9 @@ runSilentUnfallible mount -o bind "${LAPAS_GUESTROOT_DIR}" "${LAPAS_GUESTROOT_DI
 echo "${LAPAS_GUESTROOT_DIR} ${LAPAS_GUESTROOT_DIR} none bind 0 0" >> "/etc/fstab" || exit 1;
 pushd "${LAPAS_GUESTROOT_DIR}";
 	logSubsection "Downloading Archlinux Bootstrap...";
-	wget https://ftp.fau.de/archlinux/iso/latest/archlinux-bootstrap-x86_64.tar.gz || exit 1;
+	wget https://ftp.fau.de/archlinux/iso/latest/archlinux-bootstrap-x86_64.tar.zst || exit 1;
 	logSubsection "Preparing Archlinux Bootstrap...";
-	runSilentUnfallible tar xzf archlinux-bootstrap-x86_64.tar.gz --strip-components=1 --numeric-owner;
+	runSilentUnfallible tar --zstd -x -f archlinux-bootstrap-x86_64.tar.zst --strip-components=1 --numeric-owner;
 	rm archlinux-bootstrap-x86_64.tar.gz;
 popd;
 
