@@ -287,6 +287,7 @@ popd || exit 1;
 logSection "Setting up Guest OS Boot Process..."
 ################################################################################################
 runSilentUnfallible grub-mknetdir --net-directory="${LAPAS_TFTP_DIR}" --subdir=grub2;
+runSilentUnfallible mkdir -p "${LAPAS_TFTP_DIR}/grub2/themes";
 echo "${LAPAS_GUESTROOT_DIR}/boot ${LAPAS_TFTP_DIR}/boot none bind 0 0" >> "/etc/fstab" || exit 1;
 runSilentUnfallible mount -o bind "${LAPAS_GUESTROOT_DIR}/boot" "${LAPAS_TFTP_DIR}/boot";
 

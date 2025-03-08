@@ -3,6 +3,13 @@ if [ "$USER" != "root" ]; then
 	echo "You have to be logged in as root to use this. Hint: use 'su - root' instead of su root"; exit 1;
 fi
 
+# Ensure the script is running in bash
+if [ -z "$BASH_VERSION" ]; then
+    echo "This script must be run with bash, not sh."
+    exit 1
+fi
+
+
 # import LAPAS config
 . $(dirname "$0")/config;
 # KERNEL-CMDLINE
@@ -10,6 +17,7 @@ GUEST_USER_OPTIONS="ip=dhcp carrier_timeout=10 lapas_mode=user";
 GUEST_ADMIN_OPTIONS="ip=dhcp carrier_timeout=10 lapas_mode=admin";
 
 ################################################################################################
+# GRUB.CFG PREAMBLE
 
 # Empty out grub.cfg file
 cat <<"EOF" > "${LAPAS_TFTP_DIR}/grub2/grub.cfg"
@@ -29,10 +37,28 @@ insmod png
 set timeout_style=menu
 set timeout=8
 set default=0
-### END /etc/grub.d/00_header ###
 
 EOF
 
+# if there is a theme folder, setup theme
+themePath=$(find "${LAPAS_TFTP_DIR}/grub2/themes" -maxdepth 1 -type d | sed -n '2p');
+if [ -d "$themePath" ]; then
+	themeName=$(basename "$themePath");
+	echo "Using Theme: $themeName";
+
+	# Load all theme fonts
+	find "$themePath" -type f -name "*.pf2" -print0 | while read -d $'\0' fontFile; do
+		fontFileName=$(basename "$fontFile");
+		echo "loadfont \$prefix/themes/${themeName}/${fontFileName}" >> "${LAPAS_TFTP_DIR}/grub2/grub.cfg";
+	done
+
+	echo "set theme=\$prefix/themes/${themeName}/theme.txt" >> "${LAPAS_TFTP_DIR}/grub2/grub.cfg";
+	echo "export theme" >> "${LAPAS_TFTP_DIR}/grub2/grub.cfg";
+fi
+
+echo -e "\n### END /etc/grub.d/00_header ###\n\n" >> "${LAPAS_TFTP_DIR}/grub2/grub.cfg";
+
+################################################################################################
 
 # Call this method for every kernel to add it to the newly generated boot menu
 # Usage: addKernelToBootMenu <absolutePathToGuestKernel>
