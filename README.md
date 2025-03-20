@@ -24,10 +24,10 @@ graph BT
         switch(Switch); guest0(Guest 0); guest1(Guest 1); guestN(...);
     end
 
-    lapas -->|DHCP\nClient| router;
+    lapas -->|DHCP<br/>Client| router;
     router --> internet;
 
-    lapas ==>|DHCP\nServer| switch;
+    lapas ==>|DHCP<br/>Server| switch;
     switch --> guest0;
     switch --> guest1;
     switch --> guestN;
@@ -51,9 +51,9 @@ graph LR
     tftpServer -.->|provides| Kernel-Image;
     tftpServer -.->|provides| Ramdisk;
 
-    nfsServer -->|provides| guestRoot[Guest\nRootfilesystem];
+    nfsServer -->|provides| guestRoot[Guest<br/>Rootfilesystem];
     guestRoot -->|contains| keepEngine(Keep Engine);
-    guestRoot -->|contains| baseHome[Base\nHomefolder];
+    guestRoot -->|contains| baseHome[Base<br/>Homefolder];
     nfsServer -->|provides| userdataStorage[Userdata Storage];
 
     keepEngine -->|cleans up| baseHome;
@@ -92,8 +92,8 @@ graph BT
         guestRootTmpfs --> guestRootTmpsUpper["/upper"];
         guestRootTmpfs --> guestRootTmpsWork["/work"];
         guestRootTmpsUpper -.->|overlay\upper dir| guestRoot;
-        guestRootTmpsWork -.->|overlay\nwork dir| guestRoot;
-        guest -.->|overlay\nlower dir| guestRoot;
+        guestRootTmpsWork -.->|overlay<br/>work dir| guestRoot;
+        guest -.->|overlay<br/>lower dir| guestRoot;
 
         guestRoot --> guestLapas["/lapas"];
         guestRoot --> guestLib["/lib"];
@@ -108,7 +108,7 @@ graph BT
         guestMntMounts --> guestMntMountsPlayerX["/playerX"];
         guestMntMountsPlayerX --> guestMntMountsPlayerXOverlay["/.overlay"]:::mountPoint;
         guestMntMountsPlayerX --> guestMntMountsPlayerXBase["/.base"]:::mountPoint;
-        guestMntHomeBase -..->|bindfs mounted to\nuid-mapped to playerX| guestMntMountsPlayerXBase;
+        guestMntHomeBase -..->|bindfs mounted to<br/>uid-mapped to playerX| guestMntMountsPlayerXBase;
 
         guestMntMountsPlayerXOverlay --> userHomeUpper["/upper"];
         guestMntMountsPlayerXOverlay --> userStorageWork["/work"];
@@ -118,14 +118,14 @@ graph BT
         guestMntHomes --> playerX["/playerX"]:::ext4Img;
 
         playerX -.->|mounted to| guestMntMountsPlayerXOverlay;
-        userHomeUpper -->|overlayfs\nupper dir| guestHomePlayerX;
-        userStorageWork -->|overlayfs\nwork dir| guestHomePlayerX;
-        guestMntMountsPlayerXBase ----->|overlayfs\nlower dir| guestHomePlayerX;
+        userHomeUpper -->|overlayfs<br/>upper dir| guestHomePlayerX;
+        userStorageWork -->|overlayfs<br/>work dir| guestHomePlayerX;
+        guestMntMountsPlayerXBase ----->|overlayfs<br/>lower dir| guestHomePlayerX;
     end
 
     subgraph "Legend"
         nfsShare[NFS-Share]:::nfsShare;
-        ext4Img[Ext4 formatted\nUserdata image]:::ext4Img;
+        ext4Img[Ext4 formatted<br/>Userdata image]:::ext4Img;
         mountPoint[Mountpoint]:::mountPoint;
         normalDir[Directory];
     end
