@@ -1,0 +1,4 @@
+#!/bin/bash
+
+mkdir -p "$HOME/.local/share/Goldberg SteamEmu Saves/settings"
+echo "${USER}" > "$HOME/.local/share/Goldberg SteamEmu Saves/settings/account_name.txt"

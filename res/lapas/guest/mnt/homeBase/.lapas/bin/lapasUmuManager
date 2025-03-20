@@ -1,0 +1,412 @@
+#!/usr/bin/env python
+import os;
+import glob;
+import time;
+import string;
+import tomllib;
+import argparse;
+import threading;
+import subprocess;
+import umgr.zenity;
+# hook system:
+import sys;
+import uuid;
+import types;
+import pkgutil;
+from enum import Enum
+import importlib.machinery;
+# proton runtime mgmt
+import urllib.request;
+import tarfile;
+import json;
+####################################################################################
+# CONSTANTS
+
+HOME_FOLDER = os.environ['HOME'];
+USERNAME = os.environ['USER'];
+
+LAUNCHER_TEMPLATE = string.Template("""[Desktop Entry]
+Comment=${SHORTCUT_COMMENT}
+Exec=/mnt/homeBase/.lapas/bin/lapasUmuManager start ${BOTTLE_NAME} ${SHORTCUT_NAME}
+Icon=${SHORTCUT_ICON_PATH}
+Name=${SHORTCUT_DISPLAY_NAME}
+NoDisplay=false
+StartupNotify=true
+Terminal=false
+Type=Application
+Categories=Game
+""");
+DEFAULT_BOTTLE_SETTINGS = string.Template("""[bottle]
+proton = "${PROTON}"
+""");
+DEFAULT_SHORTCUT = """[shortcut]
+name = "Name of Desktop Launcher"
+comment = "Comment shown in Desktop Launcher"
+binary = "drive_c/.../game.exe"
+workingDirectory = "drive_c/..."
+args = []
+""";
+
+DEFAULT_HOOKS = """import umgr.helpers.resolution;
+
+def umgrHook_beforeShortcutStart(args):
+	print(f'Starting: {args.BOTTLE_NAME}/{args.SHORTCUT_NAME}');
+	print('####################################################');
+
+def umgrHook_afterShortcutExit(args):
+	umgr.helpers.resolution.restore();
+	print('####################################################');
+""";
+
+HOOK_BEFORE_START = 'beforeShortcutStart';
+HOOK_AFTER_EXIT = 'afterShortcutExit';
+
+####################################################################################
+
+class HookSystemCallArgsDict(dict):
+    def __getattr__(self, key):
+        try:
+            return self[key]
+        except KeyError:
+            raise AttributeError(f"No such attribute: {key}")
+
+class HookSystemCallDirection(Enum):
+	NORMAL = 0
+	REVERSED = 1
+
+class HookSystem:
+	def __init__(self, namespace):
+		self.namespace = namespace;
+		self.hooks = [];
+		if not namespace in sys.modules:
+			sys.modules[namespace] = types.ModuleType(namespace);
+			sys.modules[namespace].__path__ = [];
+		self.root = sys.modules[namespace];
+	def addEnvironment(self, moduleName, path):
+		sys.dont_write_bytecode = True; # Temporarily disable creation of __pycache__ folders
+		try:
+			module = types.ModuleType(moduleName);
+			module.__path__ = [path];
+			setattr(self.root, moduleName, module);
+			sys.modules[f'{self.namespace}.{moduleName}'] = module;
+			# add all environment modules to hooks - they may be hooks themselfes!
+			for loader, name, is_pkg in pkgutil.iter_modules(module.__path__):
+				envModulePath = f'{self.namespace}.{moduleName}.{name}';
+				print(f'Loading env: {envModulePath}');
+				envModule = importlib.import_module(envModulePath);
+				self.hooks.append(envModule);
+		finally:
+			sys.dont_write_bytecode = False;
+	def tryLoad(self, hookPath):
+		if os.path.isfile(hookPath):
+			self.load(hookPath);
+	def load(self, hookPath):
+		moduleId = uuid.uuid4().__str__();
+		sys.dont_write_bytecode = True; # Temporarily disable creation of __pycache__ folders
+		try:
+			hookModule = importlib.machinery.SourceFileLoader(f'{self.namespace}.hooks.{moduleId}', hookPath).load_module();
+			self.hooks.append(hookModule);
+		finally:
+			sys.dont_write_bytecode = False;
+	def run(self, name, args, direction = HookSystemCallDirection.NORMAL):
+		argObj = HookSystemCallArgsDict(args);
+		sortedHooks = (reversed(self.hooks) if direction == HookSystemCallDirection.REVERSED else self.hooks);
+		for hook in sortedHooks:
+			hookFn = getattr(hook, f'umgrHook_{name}', None);
+			if not hookFn == None:
+				hookFn(argObj);
+
+class UmuRepoBottleShortcut:
+	def __init__(self, path):
+		fileName = os.path.basename(path);
+		self.name = os.path.splitext(fileName)[0];
+		self.path = path;
+	def createDummy(path):
+		gameShortcut = os.path.join(path, 'game.shortcut');
+		with open(gameShortcut, 'w') as file:
+			file.write(DEFAULT_SHORTCUT);
+	def getIconPath(self):
+		return os.path.join(os.path.dirname(self.path), self.name + '.ico');
+	def getSettings(self):
+		with open(self.path, "rb") as f:
+			return tomllib.load(f)['shortcut'];
+			
+class UmuRepoBottleBuiltinShortcut:
+	def __init__(self, cmd, args):
+		self.settings = {
+			'absBinary': cmd,
+			'workingDirectory': '',
+			'args': args
+		};
+	def getSettings(self):
+		return self.settings;
+
+class UmuRepoBottle:
+	def __init__(self, baseFolder):
+		self.baseFolder = baseFolder;
+		self.prefixPath = os.path.join(baseFolder, 'prefix');
+		self.hookScriptPath = os.path.join(baseFolder, 'hooks.py');
+		self.name = os.path.basename(baseFolder);
+		self.settingsPath = os.path.join(self.baseFolder, 'bottle.conf');
+	def create(baseFolder):
+		os.mkdir(os.path.join(baseFolder, 'prefix'));
+		UmuRepoBottleShortcut.createDummy(baseFolder);
+		return UmuRepoBottle(baseFolder);
+	def getSettings(self):
+		with open(self.settingsPath, "rb") as f:
+			return tomllib.load(f)['bottle'];
+	def getShortcuts(self):
+		shortcuts = glob.glob(self.baseFolder + "/*.shortcut");
+		return [UmuRepoBottleShortcut(path) for path in shortcuts];
+	def shortcutExists(self, shortcutName):
+		return any(shortcut.name == shortcutName for shortcut in self.getShortcuts());
+	def getShortcut(self, shortcutName):
+		if not self.shortcutExists(shortcutName):
+			raise Exception(f'Unknown shortcut: {shortcutName}');
+		shortcutPath = os.path.join(self.baseFolder, f'{shortcutName}.shortcut');
+		return UmuRepoBottleShortcut(shortcutPath);
+
+class UmuRepo:
+	def __init__(self, baseFolder):
+		self.baseFolder = os.path.abspath(baseFolder);
+		self.bottlesPath = os.path.join(baseFolder, 'bottles');
+		self.protonsPath = os.path.join(baseFolder, 'protons');
+		self.hookHelpersPath = os.path.join(baseFolder, 'hookHelpers');
+		for subfolder in [self.bottlesPath, self.protonsPath, self.hookHelpersPath]:
+			if not os.path.isdir(subfolder):
+				os.mkdir(subfolder);
+	def getBottles(self):
+		return [UmuRepoBottle(f.path) for f in os.scandir(self.bottlesPath) if f.is_dir()]
+	def bottleExists(self, bottleName):
+		return any(bottle.name == bottleName for bottle in self.getBottles());
+	def getBottle(self, bottleName):
+		if not self.bottleExists(bottleName):
+			raise Exception(f'Unknown bottle name: {bottleName}');
+		bottlePath = os.path.join(self.bottlesPath, bottleName);
+		return UmuRepoBottle(bottlePath);
+	def createBottle(self, bottleName):
+		if self.bottleExists(bottleName):
+			raise Exception(f'Bottle already exists: {bottleName}');
+		bottlePath = os.path.join(self.bottlesPath, bottleName);
+		os.mkdir(bottlePath);
+		bottle = UmuRepoBottle.create(bottlePath);
+		with open(bottle.settingsPath, 'w') as file:
+			file.write(DEFAULT_BOTTLE_SETTINGS.substitute({ 'PROTON': self.getProtons()[0] }));
+		with open(bottle.hookScriptPath, 'w') as file:
+			file.write(DEFAULT_HOOKS);
+		return bottle;
+		
+	def getProtons(self):
+		return [f.name for f in os.scandir(self.protonsPath) if f.is_dir()];
+	def assertHasProtons(self):
+		if len(self.getProtons()) == 0:
+			raise Exception('Setup at least one proton environment first');
+	def getProtonPath(self, protonName):
+		return os.path.join(self.protonsPath, protonName);
+	
+	def getHookHelpers(self):
+		return [f.path for f in os.scandir(self.hookHelpersPath) if f.is_file() and f.name.endswith('.sh')];
+	
+	def __getBinaryPath(self, bottle, shortcutSettings):
+		return os.path.join(bottle.prefixPath, shortcutSettings['binary']) if 'binary' in shortcutSettings else shortcutSettings['absBinary'];
+	
+	
+	def getBottleUserdataPath(self, bottle):
+		return os.path.join(bottle.prefixPath, 'drive_c/users/steamuser'); # constant with proton - actual user folder is symlink to this folder
+	def runHook(self, bottle, shortcut, additionalEnv, hookName, direction):
+		bottleSettings = bottle.getSettings();
+		shortcutSettings = shortcut.getSettings();
+		hookArgs = {
+			"BOTTLE_PATH": bottle.baseFolder,
+			"BOTTLE_NAME": bottle.name,
+			"WINEPREFIX": bottle.prefixPath,
+			"SHORTCUT_PATH": shortcut.path,
+			"SHORTCUT_NAME": shortcut.name,
+			"SHORTCUT_BINARY": self.__getBinaryPath(bottle, shortcutSettings),
+			"SHORTCUT_WORKDIR": os.path.join(bottle.prefixPath, shortcutSettings['workingDirectory']),
+			"USERDATA_PATH": self.getBottleUserdataPath(bottle),
+			"PROTONPATH": self.getProtonPath(bottleSettings['proton']),
+			**additionalEnv
+		};
+		HOOK_SYSTEM.run(hookName, hookArgs, direction);
+	
+	def startBottleShortcut(self, bottle, shortcut):
+		bottleSettings = bottle.getSettings();
+		shortcutSettings = shortcut.getSettings();
+		
+		progressWindow = umgr.zenity.progress(f'Starting: {shortcutSettings["name"]}...', cancelButton = False, title = 'Starting');
+		
+		umuEnv = {
+			"WINEPREFIX": bottle.prefixPath,
+			"GAMEID": "0",
+			"STORE": "none",
+			"UMU_RUNTIME_UPDATE": "0",
+			"PROTONFIXES_DISABLE": "1",
+			"PROTONPATH": self.getProtonPath(bottleSettings['proton']),
+		};
+		binary = self.__getBinaryPath(bottle, shortcutSettings);
+		workingDirectoryPath = os.path.join(bottle.prefixPath, shortcutSettings['workingDirectory']);
+		process = subprocess.Popen(
+			["umu-run", binary] + shortcutSettings['args'],
+			cwd = workingDirectoryPath,
+			env = {**os.environ, **umuEnv},
+			stderr = subprocess.PIPE, text = True
+		);
+		
+		wineStatus = { 'progress': 2 };
+
+		# start a background thread that increments the progress every second
+		def incrementProgressPeriodically():
+			global currentProgress;
+			while process.poll() is None:
+				time.sleep(0.5);
+				wineStatus['progress'] = min(wineStatus['progress'] + 0.25, 99.9);
+				progressWindow.setProgress(wineStatus['progress']);
+		progressUpdateThread = threading.Thread(target = incrementProgressPeriodically, daemon = True);
+		progressUpdateThread.start();
+
+		# Forward subprocess stderr output line-by-line to our stderr
+		# increment progress by 2 with every forwarded line
+		try:
+			for line in process.stderr:
+				sys.stderr.write(line);
+				sys.stderr.flush();
+				wineStatus['progress'] = min(wineStatus['progress'] + 3, 99.9);
+				progressWindow.setProgress(wineStatus['progress']);
+		except:
+			print("Wine exited with error code");
+
+		process.wait();
+		progressUpdateThread.join();
+
+####################################################################################
+UMU_REPO = UmuRepo(os.path.join(HOME_FOLDER, '.umuManager'));
+HOOK_SYSTEM = HookSystem("umgr");
+HOOK_SYSTEM.addEnvironment('helpers', UMU_REPO.hookHelpersPath);
+
+def cmdList():
+	print("### BOTTLES");
+	for bottle in UMU_REPO.getBottles():
+		print(f'  - Bottle: {bottle.name}');
+		for shortcut in bottle.getShortcuts():
+			print(f'      - {shortcut.name}');
+	print("### PROTON RUNTIMES");
+	for proton in UMU_REPO.getProtons():
+		print(f'  - {proton}');
+
+def cmdAddProton(protonUrl):
+	if protonUrl == 'latest':
+		with urllib.request.urlopen("https://api.github.com/repos/Open-Wine-Components/umu-proton/releases/latest") as response:
+			protonReleases = json.loads(response.read().decode('utf-8'));
+			asset = next(filter(lambda r: r['name'].endswith('.tar.gz'), protonReleases['assets']));
+			protonUrl = asset['browser_download_url'];
+	print(f'Adding new Proton runtime from url: {protonUrl}');
+	protonRtStream = urllib.request.urlopen(protonUrl);
+	protonRt = tarfile.open(fileobj=protonRtStream, mode="r|*");
+	protonRt.extractall(path=UMU_REPO.protonsPath, filter='fully_trusted')
+
+def cmdCreateBottle(newBottleName):
+	UMU_REPO.assertHasProtons();
+	bottle = UMU_REPO.createBottle(newBottleName);
+	print(f'New bottle created: {newBottleName}');
+	print('Initializing prefix...');
+	shortcut = UmuRepoBottleBuiltinShortcut("wineboot", ['-u']);
+	UMU_REPO.startBottleShortcut(bottle, shortcut);
+
+def cmdStartShortcut(bottleName, shortcutName):
+	bottle = UMU_REPO.getBottle(bottleName);
+	shortcut = bottle.getShortcut(shortcutName);
+	HOOK_SYSTEM.tryLoad(bottle.hookScriptPath);
+	
+	UMU_REPO.runHook(bottle, shortcut, {}, HOOK_BEFORE_START, HookSystemCallDirection.NORMAL);
+	UMU_REPO.startBottleShortcut(bottle, shortcut);
+	UMU_REPO.runHook(bottle, shortcut, {}, HOOK_AFTER_EXIT, HookSystemCallDirection.REVERSED);
+	
+def cmdWineCfgInBottle(bottleName):
+	bottle = UMU_REPO.getBottle(bottleName);
+	shortcut = UmuRepoBottleBuiltinShortcut("winecfg", []);
+	UMU_REPO.startBottleShortcut(bottle, shortcut);
+	
+def cmdWinetricksInBottle(bottleName, verb):
+	bottle = UMU_REPO.getBottle(bottleName);
+	shortcut = UmuRepoBottleBuiltinShortcut("winetricks", [verb]);
+	UMU_REPO.startBottleShortcut(bottle, shortcut);
+
+def cmdExecInBottle(bottleName, binary):
+	bottle = UMU_REPO.getBottle(bottleName);
+	shortcut = UmuRepoBottleBuiltinShortcut(binary, []);
+	UMU_REPO.startBottleShortcut(bottle, shortcut);
+
+def cmdUpdateDesktopFiles():
+	print("Updating Desktop Launchers...");
+	launcherDir = os.path.join(HOME_FOLDER, '.local/share/applications');
+	for prevLauncherPath in glob.glob(os.path.join(launcherDir, "umu_*.desktop")):
+		os.remove(prevLauncherPath);
+	
+	for bottle in UMU_REPO.getBottles():
+		print(f'  - Bottle: {bottle.name}');
+		for shortcut in bottle.getShortcuts():
+			print(f'      - {shortcut.name}');
+			shortcutSettings = shortcut.getSettings();
+			launcherTplData = {
+				'BOTTLE_NAME': bottle.name,
+				'SHORTCUT_NAME': shortcut.name,
+				'SHORTCUT_DISPLAY_NAME': shortcutSettings['name'],
+				'SHORTCUT_COMMENT': shortcutSettings['comment'],
+				'SHORTCUT_ICON_PATH': shortcut.getIconPath(),
+			};
+			launcherPath = os.path.join(launcherDir, f'umu_{bottle.name}_{shortcut.name}.desktop');
+			launcherContent = LAUNCHER_TEMPLATE.substitute(launcherTplData);
+			with open(launcherPath, 'w') as file:
+				file.write(launcherContent);
+
+####################################################################################
+
+parser = argparse.ArgumentParser(description="UMU Manager");
+subparsers = parser.add_subparsers(dest="command", required = True, help = "Action to perform");
+
+# List command
+subparsers.add_parser("list", aliases = ['ls'], help = "Show list of bottles and their respective shortcuts");
+# addProton command
+addProtonParser = subparsers.add_parser("addProton", help = "Add the proton runtime from the given download URL (see: https://github.com/Open-Wine-Components/umu-proton)");
+addProtonParser.add_argument("protonUrl", nargs = '?', default = "latest", help="URL of the proton runtime to add");
+# Create command
+create_parser = subparsers.add_parser("create", help = "Create basic folder structure for bottle");
+create_parser.add_argument("bottle", help="Bottle to create");
+# Start command
+start_parser = subparsers.add_parser("start", help = "Start the shortcut with the given name (as defined in the bottle root folder)");
+start_parser.add_argument("bottle", help="Bottle to use");
+start_parser.add_argument("shortcut_name", help="Shortcut to start");
+# Winecfg command
+wineCfgParser = subparsers.add_parser("winecfg", help = "Start the winecfg tool in the selected bottle");
+wineCfgParser.add_argument("bottle", help="Bottle to run winecfg in");
+# Winetricks command
+winetricksParser = subparsers.add_parser("winetricks", help = "Start the winetricks tool in the selected bottle");
+winetricksParser.add_argument("bottle", help="Bottle to run winetricks in");
+winetricksParser.add_argument("verb", help="winetricks verb to apply");
+# Exec command
+exec_parser = subparsers.add_parser("exec", help = "Start the given executable in the prefix of the selected bottle");
+exec_parser.add_argument("bottle", help="Bottle to use");
+exec_parser.add_argument("binary", help="Binary to execute");
+# Update desktop files command
+subparsers.add_parser("updateDesktopFiles", help = "Create .desktop starter files for all bottle shortcuts");
+
+args = parser.parse_args();
+
+# Command dispatching
+if args.command in ("list", "ls"):
+	cmdList();
+elif args.command == 'addProton':
+	cmdAddProton(args.protonUrl);
+elif args.command == "create":
+	cmdCreateBottle(args.bottle);
+elif args.command == "start":
+	cmdStartShortcut(args.bottle, args.shortcut_name);
+elif args.command == "winecfg":
+	cmdWineCfgInBottle(args.bottle);
+elif args.command == "winetricks":
+	cmdWinetricksInBottle(args.bottle, args.verb);
+elif args.command == "exec":
+	cmdExecInBottle(args.bottle, args.binary);
+elif args.command == "updateDesktopFiles":
+	cmdUpdateDesktopFiles();

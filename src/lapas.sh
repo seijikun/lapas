@@ -1,4 +1,4 @@
-#!/bin/bash
+res/lapas/guest/mnt/homeBase/.lapas/hooks/homeBaseBeforeCleanup.sh#!/bin/bash
 if [ ! "$BASH_VERSION" ] ; then exec /bin/bash "$0" "$@"; fi
 SELF_PATH=$(realpath "$0");
 
@@ -199,7 +199,7 @@ runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_
 	xorg-server sddm qt6-multimedia-ffmpeg qt6-declarative qt6-5compat qt6-svg gst-plugins-bad gst-plugins-ugly \
 	xfce4 xfce4-goodies gvfs pulseaudio pulseaudio-alsa pavucontrol \
 	firefox geany file-roller openbsd-netcat \
-	wine-staging winetricks vkd3d zenity autorandr \
+	wine-staging winetricks umu-launcher vkd3d zenity autorandr \
 	lib32-mesa vulkan-icd-loader lib32-vulkan-icd-loader lib32-vulkan-virtio lib32-vulkan-intel lib32-vulkan-radeon lib32-vulkan-nouveau \
 	gnutls lib32-gnutls lib32-alsa-oss alsa-oss sdl12-compat \
 	openal lib32-libxcomposite lib32-libpulse lib32-openal lib32-openssl-1.1 || exit 1;
