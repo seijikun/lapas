@@ -76,51 +76,65 @@ for every player to login on a machine. Like this, all files within the player's
 when they actually come from the default-user's home directory. Like this, the default-user can setup wineprefixes that can then
 simply be used by every player. Here is a graph of the whole filesystem architecture in User-Mode when a normal player `playerX` logs in:
 ```mermaid
+---
+title: Guest OS Filesystem Mount Tree [User Home Mounting]
+---
 graph BT
     classDef ext4Img fill:#aa3333;
     classDef mountPoint fill:#337733;
     classDef nfsShare fill:#333377;
 
-    nfsServer(NFS-Server);
-    nfsServer -.-> homes:::nfsShare;
-    nfsServer -.-> guest:::nfsShare;
-    subgraph "Guest OS Filesystem [Player Handling]"
-        guest; homes;
+    subgraph "Lapas"
+        nfsServer(NFS-Server);
+        nfsServer -.-> homes:::nfsShare;
+        nfsServer -.-> guest:::nfsShare;
+    end
 
-        guestRoot["/"];
+    subgraph "Guest OS initramfs"
+        guestRootMount["chroot"];
         guestRootTmpfs(tmpfs);
-        guestRootTmpfs --> guestRootTmpsUpper["/upper"];
-        guestRootTmpfs --> guestRootTmpsWork["/work"];
-        guestRootTmpsUpper -.->|overlay\upper dir| guestRoot;
-        guestRootTmpsWork -.->|overlay<br/>work dir| guestRoot;
-        guest -.->|overlay<br/>lower dir| guestRoot;
+        guestRootTmpfs --> guestRootTmpsUpper["/tmproot/upper"]:::mountPoint;
+        guestRootTmpfs --> guestRootTmpsWork["/tmproot/work"]:::mountPoint;
+        guestRootTmpsUpper -.->|overlayfs<br/>upper dir| guestRootMount;
+        guestRootTmpsWork -.->|overlayfs<br/>work dir| guestRootMount;
+        guest -.->|mounted to| guestRootNfsMount["/dev/nfs"]:::mountPoint;
+        guestRootNfsMount -.->|overlayfs<br/>lower dir| guestRootMount;
+    end
 
+    subgraph "Guest OS Filesystem"
+        guestRoot["/"];
         guestRoot --> guestLapas["/lapas"];
-        guestRoot --> guestLib["/lib"];
+        guestRoot --> guestLib["/usr"];
         guestRoot --> guestEtc[...];
         guestRoot --> guestMnt["/mnt"];
         guestRoot --> guestHome["/home"];
 
-        guestMnt --> guestMntMounts["/.mounts"];
-        guestMnt --> guestMntHomes["/homes"]:::mountPoint;
-        guestMnt --> guestMntHomeBase["/homeBase"];
+        guestRootMount -->|chroot| guestRoot;
+    end
 
-        guestMntMounts --> guestMntMountsPlayerX["/playerX"];
-        guestMntMountsPlayerX --> guestMntMountsPlayerXOverlay["/.overlay"]:::mountPoint;
-        guestMntMountsPlayerX --> guestMntMountsPlayerXBase["/.base"]:::mountPoint;
-        guestMntHomeBase -..->|bindfs mounted to<br/>uid-mapped to playerX| guestMntMountsPlayerXBase;
+    subgraph "Guest OS User Home Mounting"
+        guest; homes;
 
-        guestMntMountsPlayerXOverlay --> userHomeUpper["/upper"];
-        guestMntMountsPlayerXOverlay --> userStorageWork["/work"];
+        guestMnt --> guestMntMounts["/mnt/.mounts"];
+        guestMnt --> guestMntHomes["/mnt/homes"]:::mountPoint;
+        guestMnt --> guestMntHomeBase["/mnt/homeBase"];
 
-        guestHome ------> guestHomePlayerX["/playerX"]:::mountPoint;
-        homes -..->|mounted to| guestMntHomes;
-        guestMntHomes --> playerX["/playerX"]:::ext4Img;
+        guestMntMounts --> guestMntMountsPlayerX["/mnt/.mounts/playerX"];
+        guestMntMountsPlayerX --> guestMntMountsPlayerXOverlay["/mnt/.mounts/playerX/.overlay"]:::mountPoint;
+        guestMntMountsPlayerX --> guestMntMountsPlayerXBase["/mnt/.mounts/playerX/.base"]:::mountPoint;
+        guestMntHomeBase -..->|bindfs mounted and<br/>uid-mapped to playerX| guestMntMountsPlayerXBase;
 
-        playerX -.->|mounted to| guestMntMountsPlayerXOverlay;
+        guestMntMountsPlayerXOverlay --> userHomeUpper["./upper"];
+        guestMntMountsPlayerXOverlay --> userStorageWork["./work"];
+
+        guestHome --> guestHomePlayerX["/home/playerX"]:::mountPoint;
+        homes -.->|mounted to| guestMntHomes;
+        guestMntHomes -->|contains ext4 image for every player| playerX["/mnt/homes/playerX"]:::ext4Img;
+
+        playerX -..->|mounted to| guestMntMountsPlayerXOverlay;
         userHomeUpper -->|overlayfs<br/>upper dir| guestHomePlayerX;
         userStorageWork -->|overlayfs<br/>work dir| guestHomePlayerX;
-        guestMntMountsPlayerXBase ----->|overlayfs<br/>lower dir| guestHomePlayerX;
+        guestMntMountsPlayerXBase -->|overlayfs<br/>lower dir| guestHomePlayerX;
     end
 
     subgraph "Legend"
