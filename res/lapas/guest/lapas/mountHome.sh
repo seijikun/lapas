@@ -44,12 +44,12 @@ if [ "$PAM_USER" != "$BASEUSER_NAME" ] && [ "$PAM_TYPE" == "open_session" ]; the
                 assertSuccessfull mkfs.ext4 -m0 "$USER_PERSISTENT_IMAGE" 1> /dev/null 2> /dev/null;
         fi
 
-        # mount /mntHomeBase idmapped for the user that is currently logging in
+        # mount /mnt/homeBase idmapped for the user that is currently logging in
         # TODO: switch to kernel built-in idmapping as soon as NFS is supported
         if [ $(mount | grep "$USER_BASE_MOUNT_DIR" | wc -l) == 0 ]; then
                 # create user-specific/idmapped mount-point for homeBase
                 assertSuccessfull mkdir -p "$USER_BASE_MOUNT_DIR";
-                assertSuccessfull bindfs --map=${BASEUSER_UID}/${LOGINUSER_UID} -o ro,noatime,kernel_cache,entry_timeout=3600,attr_timeout=3600,negative_timeout=3600 "$USER_BASE_DIR" "$USER_BASE_MOUNT_DIR";
+                assertSuccessfull bindfs --map=${BASEUSER_UID}/${LOGINUSER_UID} -o ro,noatime,kernel_cache,entry_timeout=3600,attr_timeout=3600,negative_timeout=3600 --multithreaded "$USER_BASE_DIR" "$USER_BASE_MOUNT_DIR";
         fi
 
         if [ $(mount | grep "$USER_PERSISTENT_IMAGE" | wc -l) == 0 ]; then
