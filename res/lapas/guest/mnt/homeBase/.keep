@@ -85,6 +85,8 @@ base:delete user:keep .wineManager/userdata
 base:keep user:delete .umuManager
 # runtime files
 base:keep user:delete .local/share/umu
+base:keep user:delete .local/share/Steam
+base:keep user:delete .steam
 # user specific files
 base:delete user:keep .umuManager/bottles/*/prefix/user.reg
 base:delete user:keep .umuManager/bottles/*/prefix/userdef.reg

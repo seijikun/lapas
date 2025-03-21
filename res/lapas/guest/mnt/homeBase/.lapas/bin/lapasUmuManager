@@ -240,6 +240,7 @@ class UmuRepo:
 			"WINEPREFIX": bottle.prefixPath,
 			"GAMEID": "0",
 			"STORE": "none",
+			"UMU_NO_RUNTIME": "1",
 			"UMU_RUNTIME_UPDATE": "0",
 			"PROTONFIXES_DISABLE": "1",
 			"PROTONPATH": self.getProtonPath(bottleSettings['proton']),
