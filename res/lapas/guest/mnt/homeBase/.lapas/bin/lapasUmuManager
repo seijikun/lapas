@@ -134,6 +134,8 @@ class UmuRepoBottleShortcut:
 class UmuRepoBottleBuiltinShortcut:
 	def __init__(self, cmd, args):
 		self.settings = {
+			'name': cmd,
+			'comment': '',
 			'absBinary': cmd,
 			'workingDirectory': '',
 			'args': args
