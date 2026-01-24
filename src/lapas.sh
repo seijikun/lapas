@@ -8,8 +8,8 @@ SELF_PATH=$(realpath "$0");
 LAPAS_SUBNET_REGEX="^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\/[0-9]{1,3}$";
 MAC_REGEX="(?:[0-9A-Fa-f]{2}[:-]){5}(?:[0-9A-Fa-f]{2})";
 
-LAPAS_GUEST_KERNEL_VERSION="6.13.6"; # https://kernel.org
-LAPAS_GUEST_BINDFS_VERSION="1.17.7"; # https://bindfs.org/downloads/
+LAPAS_GUEST_KERNEL_VERSION="6.18.6"; # https://kernel.org
+LAPAS_GUEST_BINDFS_VERSION="1.18.4"; # https://bindfs.org/downloads/
 LAPAS_GUEST_NVIDIADRIVER_VERSION="550.67" # https://www.nvidia.com/Download/driverResults.aspx/223426/en-us/
 ##############################
 
