@@ -8,6 +8,7 @@ import argparse;
 import threading;
 import subprocess;
 import umgr.zenity;
+import umgr.gpuinfo;
 # hook system:
 import sys;
 import uuid;
@@ -246,6 +247,7 @@ class UmuRepo:
 			"UMU_RUNTIME_UPDATE": "0",
 			"PROTONFIXES_DISABLE": "1",
 			"PROTONPATH": self.getProtonPath(bottleSettings['proton']),
+			"PROTON_USE_WINED3D": "0" if umgr.gpuinfo.hasVulkanGpu() else "1",
 		};
 		binary = self.__getBinaryPath(bottle, shortcutSettings);
 		workingDirectoryPath = os.path.join(bottle.prefixPath, shortcutSettings['workingDirectory']);
