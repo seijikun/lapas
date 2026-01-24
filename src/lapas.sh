@@ -10,7 +10,6 @@ MAC_REGEX="(?:[0-9A-Fa-f]{2}[:-]){5}(?:[0-9A-Fa-f]{2})";
 
 LAPAS_GUEST_KERNEL_VERSION="6.18.6"; # https://kernel.org
 LAPAS_GUEST_BINDFS_VERSION="1.18.4"; # https://bindfs.org/downloads/
-LAPAS_GUEST_NVIDIADRIVER_VERSION="550.67" # https://www.nvidia.com/Download/driverResults.aspx/223426/en-us/
 ##############################
 
 
@@ -298,16 +297,6 @@ EOF
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable lapas-firstboot-setup;
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable lapas-filesystem;
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable lapas-api-daemon;
-
-# We support the proprietary nvidia kernel through a secondary boot option that masks novueau and
-# installs the proprietary nvidia driver upon boot (into overlayfs tmpfs / ram of a guest).
-# This takes a while to boot but is the only sensible option because this driver just creates such a fucking mess
-# Unfortunately, nouveau is completely useless for new hardware, so we need this
-logSubsection "Setting up support for proprietary Nvidia driver"
-pushd "${LAPAS_GUESTROOT_DIR}/lapas/drivers/nvidia" || exit 1;
-	wget "https://us.download.nvidia.com/XFree86/Linux-x86_64/${LAPAS_GUEST_NVIDIADRIVER_VERSION}/NVIDIA-Linux-x86_64-${LAPAS_GUEST_NVIDIADRIVER_VERSION}.run";
-popd || exit 1;
-runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable lapas-driver-nvidia;
 
 logSubsection "Setting up UI, User & Home System"
 # configuring pam service to manage user homefolders for players

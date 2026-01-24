@@ -82,16 +82,9 @@ function addKernelToBootMenu() {
 menuentry 'User-${kernelVersion}' {
 	insmod all_video
 	set gfxpayload=keep
-	
+
 	echo "Loading Kernel ${kernelVersion} [USER] ..."
 	linux /boot/vmlinuz-${kernelVersion} ${GUEST_USER_OPTIONS} init=/lib/systemd/systemd nouveau.config=NvGspRm=1
-	echo "Loading Ramdisk ${kernelVersion} ..."
-	initrd /boot/ramdisk-${kernelVersion}
-	echo "Starting ..."
-}
-menuentry 'User-${kernelVersion} NVIDIA' {
-	echo "Loading Kernel ${kernelVersion} [USER NVIDIA] ..."
-	linux /boot/vmlinuz-${kernelVersion} ${GUEST_USER_OPTIONS} init=/lib/systemd/systemd lapas_nvidia nouveau.blacklist=yes
 	echo "Loading Ramdisk ${kernelVersion} ..."
 	initrd /boot/ramdisk-${kernelVersion}
 	echo "Starting ..."
