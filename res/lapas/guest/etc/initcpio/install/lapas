@@ -18,7 +18,6 @@ build() {
 	# Add all network card drivers built as modules and their corresponding firmware files
 	add_all_modules '/drivers/net/'
 
-	add_binary "/usr/lib/initcpio/ipconfig" "/bin/ipconfig"
 	add_binary "/usr/bin/mount.nfs4" "/bin/mount.nfs4"
 
 	add_runscript

@@ -1,5 +1,4 @@
 run_hook() {
-	ipconfig "ip=${ip}"
 	rootfstype="overlay"
 	mount_handler="lapas_mount_handler"
 }
