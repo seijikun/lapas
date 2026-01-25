@@ -1,22 +1,25 @@
 use chrono::{DateTime, Utc};
-use tokio::{io::{AsyncReadExt, self, AsyncWriteExt}};
-use thiserror::Error;
 use paste::paste;
+use thiserror::Error;
+use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
 
 #[derive(Error, Debug)]
 pub enum LapasProtocolError {
     #[error("IO Error")]
     IOError(#[from] io::Error),
     #[error("ProtocolError: {0}")]
-    ProtocolError(String)
+    ProtocolError(String),
 }
 
-
-
 #[async_trait::async_trait]
-pub trait ProtoSerde : Sized + Sync {
-    async fn decode<R: AsyncReadExt + Send + Unpin>(reader: &mut R) -> Result<Self, LapasProtocolError>;
-    async fn encode<W: AsyncWriteExt + Send + Unpin>(&self, writer: &mut W) -> Result<(), LapasProtocolError>;
+pub trait ProtoSerde: Sized + Sync {
+    async fn decode<R: AsyncReadExt + Send + Unpin>(
+        reader: &mut R,
+    ) -> Result<Self, LapasProtocolError>;
+    async fn encode<W: AsyncWriteExt + Send + Unpin>(
+        &self,
+        writer: &mut W,
+    ) -> Result<(), LapasProtocolError>;
 }
 
 macro_rules! impl_protoserde_for_basic_datatype {
@@ -46,30 +49,44 @@ impl_protoserde_for_basic_datatype!(u8, i8, u16, i16, u32, i32, u64, i64, f32, f
 
 #[async_trait::async_trait]
 impl ProtoSerde for () {
-    async fn decode<R: AsyncReadExt + Send + Unpin>(_: &mut R) -> Result<Self, LapasProtocolError> { Ok(()) }
-    async fn encode<W: AsyncWriteExt + Send + Unpin>(&self, _: &mut W) -> Result<(), LapasProtocolError> { Ok(()) }
+    async fn decode<R: AsyncReadExt + Send + Unpin>(_: &mut R) -> Result<Self, LapasProtocolError> {
+        Ok(())
+    }
+    async fn encode<W: AsyncWriteExt + Send + Unpin>(
+        &self,
+        _: &mut W,
+    ) -> Result<(), LapasProtocolError> {
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait]
 impl<TOk: ProtoSerde, TErr: ProtoSerde> ProtoSerde for Result<TOk, TErr> {
-    async fn decode<R: AsyncReadExt + Send + Unpin>(reader: &mut R) -> Result<Self, LapasProtocolError> {
+    async fn decode<R: AsyncReadExt + Send + Unpin>(
+        reader: &mut R,
+    ) -> Result<Self, LapasProtocolError> {
         let tag = reader.read_u8().await?;
         match tag {
-            0 => Ok(Ok( TOk::decode(reader).await? )),
-            1 => Ok(Err( TErr::decode(reader).await? )),
-            _ => Err(LapasProtocolError::ProtocolError("Error while deserializing Result<,>. Tag".to_owned()))
+            0 => Ok(Ok(TOk::decode(reader).await?)),
+            1 => Ok(Err(TErr::decode(reader).await?)),
+            _ => Err(LapasProtocolError::ProtocolError(
+                "Error while deserializing Result<,>. Tag".to_owned(),
+            )),
         }
     }
-    async fn encode<W: AsyncWriteExt + Send + Unpin>(&self, writer: &mut W) -> Result<(), LapasProtocolError> {
+    async fn encode<W: AsyncWriteExt + Send + Unpin>(
+        &self,
+        writer: &mut W,
+    ) -> Result<(), LapasProtocolError> {
         match self {
             Ok(ok) => {
                 writer.write_u8(0).await?;
                 ok.encode(writer).await?;
-            },
+            }
             Err(err) => {
                 writer.write_u8(1).await?;
                 err.encode(writer).await?;
-            },
+            }
         }
         Ok(())
     }
@@ -77,20 +94,27 @@ impl<TOk: ProtoSerde, TErr: ProtoSerde> ProtoSerde for Result<TOk, TErr> {
 
 #[async_trait::async_trait]
 impl<T: ProtoSerde> ProtoSerde for Option<T> {
-    async fn decode<R: AsyncReadExt + Send + Unpin>(reader: &mut R) -> Result<Self, LapasProtocolError> {
+    async fn decode<R: AsyncReadExt + Send + Unpin>(
+        reader: &mut R,
+    ) -> Result<Self, LapasProtocolError> {
         let tag = reader.read_u8().await?;
         match tag {
             0 => Ok(None),
             1 => Ok(Some(T::decode(reader).await?)),
-            _ => Err(LapasProtocolError::ProtocolError("Error while deserializing Option. Invalid tag".to_owned()))
+            _ => Err(LapasProtocolError::ProtocolError(
+                "Error while deserializing Option. Invalid tag".to_owned(),
+            )),
         }
     }
-    async fn encode<W: AsyncWriteExt + Send + Unpin>(&self, writer: &mut W) -> Result<(), LapasProtocolError> {
+    async fn encode<W: AsyncWriteExt + Send + Unpin>(
+        &self,
+        writer: &mut W,
+    ) -> Result<(), LapasProtocolError> {
         match self {
             Some(val) => {
                 writer.write_u8(1).await?;
                 val.encode(writer).await?;
-            },
+            }
             None => writer.write_u8(0).await?,
         }
         Ok(())
@@ -99,7 +123,9 @@ impl<T: ProtoSerde> ProtoSerde for Option<T> {
 
 #[async_trait::async_trait]
 impl<T: ProtoSerde + Send> ProtoSerde for Vec<T> {
-    async fn decode<R: AsyncReadExt + Send + Unpin>(reader: &mut R) -> Result<Self, LapasProtocolError> {
+    async fn decode<R: AsyncReadExt + Send + Unpin>(
+        reader: &mut R,
+    ) -> Result<Self, LapasProtocolError> {
         let cnt = reader.read_u64().await?;
         let mut result = Vec::new();
         for _ in 0..cnt {
@@ -107,7 +133,10 @@ impl<T: ProtoSerde + Send> ProtoSerde for Vec<T> {
         }
         Ok(result)
     }
-    async fn encode<W: AsyncWriteExt + Send + Unpin>(&self, writer: &mut W) -> Result<(), LapasProtocolError> {
+    async fn encode<W: AsyncWriteExt + Send + Unpin>(
+        &self,
+        writer: &mut W,
+    ) -> Result<(), LapasProtocolError> {
         writer.write_u64(self.len() as u64).await?;
         for val in self.iter() {
             val.encode(writer).await?;
@@ -118,17 +147,25 @@ impl<T: ProtoSerde + Send> ProtoSerde for Vec<T> {
 
 #[async_trait::async_trait]
 impl ProtoSerde for String {
-    async fn decode<R: AsyncReadExt + Send + Unpin>(reader: &mut R) -> Result<Self, LapasProtocolError> {
+    async fn decode<R: AsyncReadExt + Send + Unpin>(
+        reader: &mut R,
+    ) -> Result<Self, LapasProtocolError> {
         let len = reader.read_u32().await?;
         let mut str_bytes = Vec::<u8>::with_capacity(len as usize);
-        unsafe { str_bytes.set_len(str_bytes.capacity()); }
+        unsafe {
+            str_bytes.set_len(str_bytes.capacity());
+        }
         reader.read_exact(&mut str_bytes).await?;
-        Ok(
-            String::from_utf8(str_bytes)
-                .map_err(|_| LapasProtocolError::ProtocolError("Error while deserializing String. Invalid encoding".to_owned()))?
-        )
+        Ok(String::from_utf8(str_bytes).map_err(|_| {
+            LapasProtocolError::ProtocolError(
+                "Error while deserializing String. Invalid encoding".to_owned(),
+            )
+        })?)
     }
-    async fn encode<W: AsyncWriteExt + Send + Unpin>(&self, writer: &mut W) -> Result<(), LapasProtocolError> {
+    async fn encode<W: AsyncWriteExt + Send + Unpin>(
+        &self,
+        writer: &mut W,
+    ) -> Result<(), LapasProtocolError> {
         writer.write_u32(self.len() as u32).await?;
         writer.write_all(self.as_bytes()).await?;
         Ok(())
@@ -137,12 +174,18 @@ impl ProtoSerde for String {
 
 #[async_trait::async_trait]
 impl ProtoSerde for DateTime<Utc> {
-    async fn decode<R: AsyncReadExt + Send + Unpin>(reader: &mut R) -> Result<Self, LapasProtocolError> {
-        let ts = DateTime::parse_from_rfc3339(&String::decode(reader).await?)
-            .map_err(|e| LapasProtocolError::ProtocolError(format!("Failed to parse timestamp:\n{}", e)))?;
+    async fn decode<R: AsyncReadExt + Send + Unpin>(
+        reader: &mut R,
+    ) -> Result<Self, LapasProtocolError> {
+        let ts = DateTime::parse_from_rfc3339(&String::decode(reader).await?).map_err(|e| {
+            LapasProtocolError::ProtocolError(format!("Failed to parse timestamp:\n{}", e))
+        })?;
         Ok(ts.into())
     }
-    async fn encode<W: AsyncWriteExt + Send + Unpin>(&self, writer: &mut W) -> Result<(), LapasProtocolError> {
+    async fn encode<W: AsyncWriteExt + Send + Unpin>(
+        &self,
+        writer: &mut W,
+    ) -> Result<(), LapasProtocolError> {
         self.to_rfc3339().encode(writer).await?;
         Ok(())
     }
@@ -202,7 +245,6 @@ macro_rules! define_protocol {
                         pkt_tag += 1;
                     }
                 )*
-                drop(pkt_tag);
 
                 Ok(())
             }

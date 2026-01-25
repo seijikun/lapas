@@ -1,6 +1,6 @@
 mod dns_service;
-mod user_service;
 mod notification_service;
+mod user_service;
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -9,28 +9,30 @@ use std::os::unix::prelude::PermissionsExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::{anyhow, Result, Context};
-use dns_service::DnsService;
-use notification_service::NotificationService;
-use rand::Rng;
-use rand::distributions::Alphanumeric;
-use sha2::{Sha512, Digest};
-use tokio::fs::File;
-use tokio::net::tcp::{OwnedWriteHalf, OwnedReadHalf};
-use tokio::net::TcpListener;
-use tokio::io::{AsyncWriteExt, BufReader, AsyncBufReadExt};
+use anyhow::{anyhow, Context, Result};
 use clap::Parser;
-use lapas_api_proto::{LapasProtocol, ProtoSerde, ApiAuth, LapasUserPasswd, LapasUserShadow};
+use dns_service::DnsService;
+use lapas_api_proto::{ApiAuth, LapasProtocol, LapasUserPasswd, LapasUserShadow, ProtoSerde};
+use notification_service::NotificationService;
+use rand::distr::Alphanumeric;
+use rand::Rng;
+use sha2::{Digest, Sha512};
+use tokio::fs::File;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
+use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 use user_service::UserService;
 
 #[derive(Clone)]
 struct PeerTx {
-    tx: Arc<Mutex<OwnedWriteHalf>>
+    tx: Arc<Mutex<OwnedWriteHalf>>,
 }
 impl PeerTx {
     pub fn new(tx: OwnedWriteHalf) -> Self {
-        Self { tx: Arc::new(Mutex::new(tx)) }
+        Self {
+            tx: Arc::new(Mutex::new(tx)),
+        }
     }
     pub async fn shutdown(&self) {
         let _ = self.tx.lock().await.shutdown().await;
@@ -43,7 +45,7 @@ impl PeerTx {
 }
 
 struct PeerRx {
-    rx: OwnedReadHalf
+    rx: OwnedReadHalf,
 }
 impl PeerRx {
     pub fn new(rx: OwnedReadHalf) -> Self {
@@ -56,7 +58,7 @@ impl PeerRx {
 
 #[derive(Clone)]
 struct ClientContext {
-    addr: SocketAddr
+    addr: SocketAddr,
 }
 impl ClientContext {
     pub fn log<M: ToString>(&self, msg: M) {
@@ -64,49 +66,57 @@ impl ClientContext {
     }
 }
 
-
 struct State {
     config: HashMap<String, String>,
     root_nonce: String,
     user_service: Mutex<UserService>,
     dns_service: Mutex<DnsService>,
-    notification_service: NotificationService
+    notification_service: NotificationService,
 }
 impl State {
     pub async fn init(args: &CliArgs) -> Result<State> {
         let mut config = HashMap::new();
 
-        let config_file = File::open(&args.config_file).await
+        let config_file = File::open(&args.config_file)
+            .await
             .context("Failed to open lapas scripts configuration file.")?;
         let mut config_file_lines = BufReader::new(config_file).lines();
         while let Some(line) = config_file_lines.next_line().await? {
-            if line.starts_with("#") { continue; }
+            if line.starts_with("#") {
+                continue;
+            }
             let line_parts: Vec<_> = line.splitn(2, "=").collect();
-            if line_parts.len() != 2 { return Err(anyhow!("Invalid config file")); }
+            if line_parts.len() != 2 {
+                return Err(anyhow!("Invalid config file"));
+            }
             let key = line_parts[0];
             let mut value = line_parts[1];
             if value.len() > 1 && value.starts_with("\"") && value.ends_with("\"") {
-                value = &value[1..value.len()-1];
+                value = &value[1..value.len() - 1];
             }
             config.insert(key.to_owned(), value.to_owned());
         }
 
-        let homes_dir = config.get("LAPAS_USERHOMES_DIR")
+        let homes_dir = config
+            .get("LAPAS_USERHOMES_DIR")
             .expect("Config File missing parameter LAPAS_USERHOMES_DIR")
             .clone();
-        let guest_root_dir = config.get("LAPAS_GUESTROOT_DIR")
+        let guest_root_dir = config
+            .get("LAPAS_GUESTROOT_DIR")
             .expect("Config File missing parameter LAPAS_GUESTROOT_DIR")
             .clone();
-        let dns_domain = config.get("LAPAS_NET_DOMAIN")
+        let dns_domain = config
+            .get("LAPAS_NET_DOMAIN")
             .expect("Config File missing parameter LAPAS_NET_DOMAIN")
             .clone();
-        let dns_hostmap_dir = config.get("LAPAS_DNS_HOSTMAPPINGS_DIR")
+        let dns_hostmap_dir = config
+            .get("LAPAS_DNS_HOSTMAPPINGS_DIR")
             .expect("Config File missing parameter LAPAS_DNS_HOSTMAPPINGS_DIR")
             .clone();
 
         // generate random root nonce that can be used for root logins.
         // This root_nonce will then be written to the guest's lapas directory (only root-accessible)
-        let root_nonce: String = rand::thread_rng()
+        let root_nonce: String = rand::rng()
             .sample_iter(&Alphanumeric)
             .take(128)
             .map(char::from)
@@ -115,41 +125,47 @@ impl State {
         root_nonce_file.push("lapas");
         root_nonce_file.push("apiserver_root_nonce.env");
         let mut root_nonce_file = File::create(root_nonce_file).await?;
-        root_nonce_file.write_all(format!("ROOT_NONCE=\"{}\"\n", root_nonce).as_bytes()).await?;
+        root_nonce_file
+            .write_all(format!("ROOT_NONCE=\"{}\"\n", root_nonce).as_bytes())
+            .await?;
         root_nonce_file.flush().await?;
         let mut root_nonce_file_permissions = root_nonce_file.metadata().await?.permissions();
         // only root accessible
         root_nonce_file_permissions.set_mode(0);
-        root_nonce_file.set_permissions(root_nonce_file_permissions).await?;
+        root_nonce_file
+            .set_permissions(root_nonce_file_permissions)
+            .await?;
 
         Ok(State {
             config,
             root_nonce,
             user_service: Mutex::new(UserService::new(homes_dir).await?),
             dns_service: Mutex::new(DnsService::new(dns_domain, dns_hostmap_dir).await?),
-            notification_service: NotificationService::new()
+            notification_service: NotificationService::new(),
         })
     }
 
     fn password_salt(&self) -> &str {
-        self.config.get("LAPAS_PASSWORD_SALT").expect("Config File missing parameter LAPAS_PASSWORD_SALT")
+        self.config
+            .get("LAPAS_PASSWORD_SALT")
+            .expect("Config File missing parameter LAPAS_PASSWORD_SALT")
     }
     fn password_hash(&self) -> &str {
-        self.config.get("LAPAS_PASSWORD_HASH").expect("Config File missing parameter LAPAS_PASSWORD_HASH")
+        self.config
+            .get("LAPAS_PASSWORD_HASH")
+            .expect("Config File missing parameter LAPAS_PASSWORD_HASH")
     }
 
     pub fn check_auth(&self, auth: ApiAuth) -> bool {
         match auth {
-            ApiAuth::RootNonce(root_nonce) => {
-                root_nonce == self.root_nonce
-            },
+            ApiAuth::RootNonce(root_nonce) => root_nonce == self.root_nonce,
             ApiAuth::Password(api_password) => {
                 let salted_password = format!("{}{}", self.password_salt(), api_password); // prepend salt
                 let mut hasher = Sha512::new();
                 hasher.update(salted_password.as_bytes());
                 let salted_password_hash = hex::encode(hasher.finalize());
                 self.password_hash() == salted_password_hash
-            },
+            }
         }
     }
 
@@ -166,7 +182,7 @@ impl State {
         let dns_service = self.dns_service.lock().await;
         let result = dns_service.create_mapping(username, addr).await;
         if let Ok(_) = result {
-            self.notify(LapasProtocol::NotifyDnsMappingsChanged{});
+            self.notify(LapasProtocol::NotifyDnsMappingsChanged {});
         }
         result
     }
@@ -196,16 +212,19 @@ async fn handle_handshake(rx: &mut PeerRx, tx: &PeerTx) -> Result<()> {
     let pkt = rx.recv().await?;
     if let LapasProtocol::ControlHandshake { version } = pkt {
         if version != lapas_api_proto::VERSION {
-            tx.send(LapasProtocol::ControlHandshakeResponse { result: Err("Incompatible Protocol Version".to_string()) }).await?;
+            tx.send(LapasProtocol::ControlHandshakeResponse {
+                result: Err("Incompatible Protocol Version".to_string()),
+            })
+            .await?;
             return Err(anyhow!("Incompatible Protocol Version"));
         }
     } else {
         return Err(anyhow!("Received unexpected packet!"));
     }
-    tx.send(LapasProtocol::ControlHandshakeResponse { result: Ok(()) }).await?;
+    tx.send(LapasProtocol::ControlHandshakeResponse { result: Ok(()) })
+        .await?;
     Ok(())
 }
-
 
 macro_rules! handle_request {
     ($state:ident, $tx:ident, $(@auth_with($auth:ident),)? $response_pkt:ident = {
@@ -230,7 +249,12 @@ macro_rules! handle_request {
     };
 }
 
-async fn handle_client(mut rx: PeerRx, tx: PeerTx, ctx: ClientContext, state: SharedState) -> Result<()> {
+async fn handle_client(
+    mut rx: PeerRx,
+    tx: PeerTx,
+    ctx: ClientContext,
+    state: SharedState,
+) -> Result<()> {
     // Handshake
     handle_handshake(&mut rx, &tx).await?;
 
@@ -240,35 +264,43 @@ async fn handle_client(mut rx: PeerRx, tx: PeerTx, ctx: ClientContext, state: Sh
             LapasProtocol::ControlListenEvents {} => {
                 state.register_event_listener(tx.clone()).await;
                 ctx.log("Registered for events");
-            },
+            }
             LapasProtocol::ControlCheckAuth { auth } => {
                 handle_request!(state, tx, @auth_with(auth), ControlCheckAuthResponse = {
                     {let result: Result<(), String> = Ok(()); result};
                 });
             }
 
-            LapasProtocol::UserRegister { auth, new_username, new_password } => {
+            LapasProtocol::UserRegister {
+                auth,
+                new_username,
+                new_password,
+            } => {
                 handle_request!(state, tx, @auth_with(auth), UserRegisterResponse = {
                     state.add_user(new_username.clone(), new_password).await;
                     Ok = || ctx.log(format!("Successfully registered user: {}", new_username));
                     Err = |e| ctx.log(format!("Failed to register new user: {}\n{}", new_username, e));
                 });
-            },
+            }
             LapasProtocol::UserDnsMapping { auth, username } => {
                 handle_request!(state, tx, @auth_with(auth), UserDnsMappingResponse = {
                     state.create_user_host_mapping(username.clone(), ctx.addr).await;
                     Ok = || ctx.log(format!("Usermapping created to: {}", username));
                     Err = |e| ctx.log(format!("Failed to create usermapping to: {}\n{}", username, e));
                 });
-            },
+            }
 
             LapasProtocol::PasswdGetList => {
-                handle_request!(state, tx, PasswdGetListResponse = {
-                    state.passwd_all().await;
-                    Ok = || ctx.log("Requested passwd");
-                    Err = |e| ctx.log(format!("Failed to send passwd:\n{}", e));
-                });
-            },
+                handle_request!(
+                    state,
+                    tx,
+                    PasswdGetListResponse = {
+                        state.passwd_all().await;
+                        Ok = || ctx.log("Requested passwd");
+                        Err = |e| ctx.log(format!("Failed to send passwd:\n{}", e));
+                    }
+                );
+            }
 
             LapasProtocol::ShadowGetList { auth } => {
                 handle_request!(state, tx, @auth_with(auth), ShadowGetListResponse = {
@@ -276,15 +308,12 @@ async fn handle_client(mut rx: PeerRx, tx: PeerTx, ctx: ClientContext, state: Sh
                     Ok = || ctx.log("Requested passwd");
                     Err = |e| ctx.log(format!("Failed to send passwd:\n{}", e));
                 });
-            },
+            }
 
             _ => {}
         }
     }
 }
-
-
-
 
 #[derive(Debug, Parser)]
 #[command(name = "lapas_api_server")]
@@ -292,9 +321,8 @@ async fn handle_client(mut rx: PeerRx, tx: PeerTx, ctx: ClientContext, state: Sh
 struct CliArgs {
     /// Path to the lapas script configuration file
     #[arg(long = "config", value_name = "CONFIG")]
-    config_file: PathBuf
+    config_file: PathBuf,
 }
-
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
@@ -302,21 +330,27 @@ async fn main() -> Result<()> {
     let state = Arc::new(State::init(&args).await?);
 
     // start server
-    println!("Starting LAPAS API Server [Protocol Version: {}]", lapas_api_proto::VERSION);
+    println!(
+        "Starting LAPAS API Server [Protocol Version: {}]",
+        lapas_api_proto::VERSION
+    );
     let listener = TcpListener::bind(("0.0.0.0", 1337)).await?;
     println!("Listening on 0.0.0.0:1337");
     loop {
         let (client_stream, addr) = listener.accept().await?;
-        tokio::spawn({let state = state.clone(); async move {
-            let clog = ClientContext { addr };
-            clog.log("Connected");
-            let (rx, tx) = client_stream.into_split();
-            let (rx, tx) = (PeerRx::new(rx), PeerTx::new(tx));
-            if let Err(e) = handle_client(rx, tx.clone(), clog.clone(), state).await {
-                clog.log(format!("Error: {}", e));
+        tokio::spawn({
+            let state = state.clone();
+            async move {
+                let clog = ClientContext { addr };
+                clog.log("Connected");
+                let (rx, tx) = client_stream.into_split();
+                let (rx, tx) = (PeerRx::new(rx), PeerTx::new(tx));
+                if let Err(e) = handle_client(rx, tx.clone(), clog.clone(), state).await {
+                    clog.log(format!("Error: {}", e));
+                }
+                tx.shutdown().await;
+                clog.log("Disconnected");
             }
-            tx.shutdown().await;
-            clog.log("Disconnected");
-        }});
+        });
     }
 }
