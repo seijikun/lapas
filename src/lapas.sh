@@ -66,7 +66,7 @@ logInfo "Installing dependencies...";
 # mask the services we want to install because someone at Debian thought it was a good idea
 # to just start them while they are installed (:facepalm:).
 systemctl mask dnsmasq;
-runSilentUnfallible apt-get install -y dialog ethtool gdisk dosfstools openssh-server ntp pxelinux libnfs-utils grub-pc-bin grub-efi-amd64-bin grub-efi-ia32-bin binutils nfs-kernel-server dnsmasq;
+runSilentUnfallible apt-get install -y dialog ethtool gdisk dosfstools openssh-server chrony pxelinux libnfs-utils grub-pc-bin grub-efi-amd64-bin grub-efi-ia32-bin binutils nfs-kernel-server dnsmasq;
 systemctl unmask dnsmasq;
 
 ################################################
@@ -360,7 +360,7 @@ runSilentUnfallible systemctl restart nfs-kernel-server;
 
 logSubsection "Setting up NTP...";
 ################################################################################
-runSilentUnfallible systemctl enable ntpsec;
+runSilentUnfallible systemctl enable chrony;
 
 
 logSubsection "Setting up LAPAS API Server...";
@@ -380,7 +380,7 @@ runSilentUnfallible systemctl restart systemd-networkd;
 runSilentUnfallible systemctl restart systemd-resolved;
 uiAwaitLinkStateUp "${LAPAS_NIC_UPSTREAM}" "${LAPAS_NIC_INTERNAL[@]}" "lapas" || exit 1;
 
-runSilentUnfallible systemctl restart ntp;
+runSilentUnfallible systemctl restart chrony;
 runSilentUnfallible systemctl restart dnsmasq;
 runSilentUnfallible systemctl start lapas-api-server;
 

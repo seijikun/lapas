@@ -153,12 +153,12 @@ graph BT
 - Clients that support network booting / PXE booting
 
 ### Installation
-This repository contains the source code for an half-interactive installer script that sets up a minimal LAPAS installation based on top of a cleanly installed Debian 11.
+This repository contains the source code for an half-interactive installer script that sets up a minimal LAPAS installation based on top of a cleanly installed Debian 13.
 I suggest installing LAPAS baremetal on a host that's meant for just this purpose.
 To do that, follow this process:
 
 #### Step by Step:
-- Install clean Debian 11
+- Install clean Debian 13
 - Prepare the installation folder (e.g. `/mnt/lapas`)
 	- Should have high I/O throughput and a large capacity. That's where all the data will be stored.
 - Download the latest `lapas_installer.sh` from the GitHub Releases page onto the host
