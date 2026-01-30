@@ -201,7 +201,7 @@ runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_
 	wine-staging winetricks umu-launcher vkd3d zenity autorandr \
 	lib32-mesa vulkan-icd-loader lib32-vulkan-icd-loader lib32-vulkan-virtio lib32-vulkan-intel lib32-vulkan-radeon lib32-vulkan-nouveau \
 	gnutls lib32-gnutls lib32-alsa-oss alsa-oss sdl12-compat \
-	openal lib32-libxcomposite lib32-libpulse lib32-openal lib32-openssl-1.1 || exit 1;
+	openal lib32-libxcomposite lib32-libpulse lib32-openal lib32-openssl-1.1 lib32-freetype2 || exit 1;
 
 
 
