@@ -242,7 +242,7 @@ logSection "Setting up Guest OS Kernel..."
 logSubsection "Downloading Guest OS Kernel..."
 pushd "${LAPAS_GUESTROOT_DIR}/usr/src" || exit 1;
 	wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-${LAPAS_GUEST_KERNEL_VERSION}.tar.xz || exit 1;
-	runSilentUnfallible tar xvf ./linux-${LAPAS_GUEST_KERNEL_VERSION}.tar.xz;
+	runSilentUnfallible tar xf ./linux-${LAPAS_GUEST_KERNEL_VERSION}.tar.xz;
 	runSilentUnfallible rm ./linux-${LAPAS_GUEST_KERNEL_VERSION}.tar.xz;
 	KERNEL_DIR="/usr/src/linux-${LAPAS_GUEST_KERNEL_VERSION}";
 	streamBinaryPayload "$SELF_PATH" "__PAYLOAD_GUEST_KERNEL_CONF__" | base64 -d | gzip -d > "${LAPAS_GUESTROOT_DIR}/${KERNEL_DIR}/.config" || exit 1;
