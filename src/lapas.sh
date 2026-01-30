@@ -66,7 +66,7 @@ logInfo "Installing dependencies...";
 # mask the services we want to install because someone at Debian thought it was a good idea
 # to just start them while they are installed (:facepalm:).
 systemctl mask dnsmasq;
-runSilentUnfallible apt-get install -y dialog ethtool gdisk dosfstools openssh-server chrony pxelinux libnfs-utils grub-pc-bin grub-efi-amd64-bin grub-efi-ia32-bin binutils nfs-kernel-server dnsmasq;
+runSilentUnfallible apt-get install -y dialog ethtool gdisk dosfstools openssh-server chrony pxelinux libnfs-utils grub-pc-bin grub-efi-amd64-bin grub-efi-ia32-bin binutils nfs-kernel-server dnsmasq restic;
 systemctl unmask dnsmasq;
 
 ################################################
