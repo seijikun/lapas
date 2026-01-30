@@ -4,3 +4,7 @@ Name=@@LAPAS_NIC_UPSTREAM@@
 [Network]
 DHCP=ipv4
 IPForward=true
+IPv6AcceptRA=yes
+
+[IPv6AcceptRA]
+UseDNS=no
