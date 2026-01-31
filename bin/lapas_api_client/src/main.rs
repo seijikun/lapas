@@ -26,12 +26,8 @@ macro_rules! perform_request {
 #[command(author, version, about)]
 struct CliArgs {
     /// LAPAS administration password to use during authentication with the API server.
-    #[arg(long = "auth")]
+    #[arg(long = "auth", env = "API_PASSWORD")]
     api_password: Option<String>,
-
-    /// Root Nonce to use for authentication with the LAPAS API server.
-    #[arg(long = "rootauth", env)]
-    root_nonce: Option<String>,
 
     /// Address of the LAPAS pi server
     #[arg(long = "host", default_value = "lapas")]
@@ -68,10 +64,9 @@ enum ClientCommand {
 }
 
 fn args_to_auth(args: &CliArgs) -> Result<ApiAuth> {
-    // use one of the supplied authentication mechanisms (prefer root_nonce).
-    match (&args.api_password, &args.root_nonce) {
-        (_, Some(root_nonce)) => Ok(ApiAuth::RootNonce(root_nonce.clone())),
-        (Some(api_password), _) => Ok(ApiAuth::Password(api_password.clone())),
+    // use one of the supplied authentication mechanisms
+    match &args.api_password {
+        Some(api_password) => Ok(ApiAuth::Password(api_password.clone())),
         _ => Err(anyhow!("This action requires authentication"))
     }
 }
@@ -140,7 +135,7 @@ async fn cmd_list_users(connection: &mut TcpStream) -> Result<()> {
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     let args = CliArgs::parse();
-    if let (None, None) = (&args.api_password, &args.root_nonce) {
+    if args.api_password.is_none() {
         return Err(anyhow!("Authentication option required"));
     }
 

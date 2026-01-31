@@ -7,7 +7,7 @@ Before=getty.service display-manager.service
 [Service]
 User=root
 Type=notify
-EnvironmentFile=/lapas/apiserver_root_nonce.env
+EnvironmentFile=/lapas/lapas-api.env
 ExecStart=/lapas/lapas-api-client daemon
 
 [Install]

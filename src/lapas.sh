@@ -25,7 +25,7 @@ function printHeader() {
 		░ ░    ░   ▒   ░░         ░   ▒   ░  ░  ░  
 		    ░  ░     ░  ░               ░  ░      ░
 		
-		Installer v0.5.5
+		Installer v0.99
 	";
 }
 
@@ -66,7 +66,7 @@ logInfo "Installing dependencies...";
 # mask the services we want to install because someone at Debian thought it was a good idea
 # to just start them while they are installed (:facepalm:).
 systemctl mask dnsmasq;
-runSilentUnfallible apt-get install -y dialog ethtool gdisk dosfstools openssh-server chrony pxelinux libnfs-utils grub-pc-bin grub-efi-amd64-bin grub-efi-ia32-bin binutils nfs-kernel-server dnsmasq restic;
+runSilentUnfallible apt-get install -y dialog ethtool gdisk dosfstools openssh-server chrony pxelinux libnfs-utils grub-pc-bin grub-efi-amd64-bin grub-efi-ia32-bin binutils nfs-kernel-server targetcli-fb dnsmasq restic;
 systemctl unmask dnsmasq;
 
 ################################################
@@ -95,6 +95,13 @@ LAPAS_NET_DHCP_ADDRESSES_START=$(fqIpGetNthUsableHostaddress "$LAPAS_NET_ADDRESS
 LAPAS_NET_DHCP_ADDRESSES_END=$(fqIpGetLastUsableHostaddress "$LAPAS_NET_ADDRESS");
 LAPAS_NFS_VERSION="4.2";
 LAPAS_NFS_USER_MOUNTOPTIONS="vers=${LAPAS_NFS_VERSION},noatime,nodiratime,nconnect=4";
+
+LAPAS_GUESTIMG_PATH="${LAPAS_BASE_DIR}/guest.img";
+LAPAS_GUESTIMG_SIZE="1T";
+LAPAS_GUESTIMG_FSUUID="16d4a517-bf5d-45f3-8fd3-92f1edcb613e";
+LAPAS_GUESTIMG_NAME="lapas_guest";
+LAPAS_GUESTIMG_IQN="iqn.1970-01.lapas.lapas:guest";
+LAPAS_GUESTIMG_LUN="0";
 
 # make sure bash arrays are printed space separated
 IFS=' ';
@@ -149,6 +156,12 @@ LAPAS_CONFIGURATION_OPTIONS=(
 	"LAPAS_NFS_VERSION=${LAPAS_NFS_VERSION}"
 	"LAPAS_NFS_USER_MOUNTOPTIONS=${LAPAS_NFS_USER_MOUNTOPTIONS}"
 	"LAPAS_DNS_HOSTMAPPINGS_DIR=${LAPAS_DNS_HOSTMAPPINGS_DIR}"
+	"LAPAS_GUESTIMG_PATH"="${LAPAS_GUESTIMG_PATH}"
+	"LAPAS_GUESTIMG_SIZE"="${LAPAS_GUESTIMG_SIZE}"
+	"LAPAS_GUESTIMG_FSUUID"="${LAPAS_GUESTIMG_FSUUID}"
+	"LAPAS_GUESTIMG_NAME"="${LAPAS_GUESTIMG_NAME}"
+	"LAPAS_GUESTIMG_IQN"="${LAPAS_GUESTIMG_IQN}"
+	"LAPAS_GUESTIMG_LUN"="${LAPAS_GUESTIMG_LUN}"
 );
 
 cliYesNo "This is your configuration. Continue?" resultConfigCheckOk;
@@ -158,20 +171,52 @@ if [ "$resultConfigCheckOk" == "no" ]; then
 fi
 
 
+################################################################################################
+logSection "Setting up Guest Disk";
+################################################################################################
+# Prepare sparse ext4 formatted disk image as guest disk
+runSilentUnfallible truncate -s ${LAPAS_GUESTIMG_SIZE} ${LAPAS_GUESTIMG_PATH};
+runSilentUnfallible mkfs.ext4 -U ${LAPAS_GUESTIMG_FSUUID} ${LAPAS_GUESTIMG_PATH};
+targetcli <<EOF
+	clearconfig true
+	
+	# Create fileio backstore
+	/backstores/fileio create ${LAPAS_GUESTIMG_NAME} ${LAPAS_GUESTIMG_PATH} ${LAPAS_GUESTIMG_SIZE} write_back=true sparse=true
+	
+	# Create iSCSI target
+	/iscsi create ${LAPAS_GUESTIMG_IQN}
+	
+	# Create LUN
+	/iscsi/${LAPAS_GUESTIMG_IQN}/tpg1/luns create /backstores/fileio/${LAPAS_GUESTIMG_NAME} lun=$LAPAS_GUESTIMG_LUN
+	
+	# Enable TPG attributes
+	# - No authentication
+	# - Allow unauthenticated read-write
+	# - Auto-generate ACLs for any initiator
+	/iscsi/${LAPAS_GUESTIMG_IQN}/tpg1 set attribute authentication=0 demo_mode_write_protect=0 generate_node_acls=1
+	
+	# store config
+	saveconfig
+EOF
+# mount image for all following tasks
+runSilentUnfallible mkdir "${LAPAS_GUESTROOT_DIR}";
+runSilentUnfallible mount "${LAPAS_GUESTIMG_PATH}" "${LAPAS_GUESTROOT_DIR}";
+runSilentUnfallible mkdir -p "${LAPAS_TFTP_DIR}/boot" "${LAPAS_GUESTROOT_DIR}/boot";
+runSilentUnfallible mount --bind "${LAPAS_TFTP_DIR}/boot" "${LAPAS_GUESTROOT_DIR}/boot";
+
+
 
 ################################################################################################
 logSection "Setting up Guest OS (Archlinux base installation)...";
 ################################################################################################
 # see: https://wiki.archlinux.org/title/Install_Arch_Linux_from_existing_Linux#From_a_host_running_another_Linux_distribution
 runSilentUnfallible mkdir -p "${LAPAS_GUESTROOT_DIR}";
-runSilentUnfallible mount -o bind "${LAPAS_GUESTROOT_DIR}" "${LAPAS_GUESTROOT_DIR}";
-echo "${LAPAS_GUESTROOT_DIR} ${LAPAS_GUESTROOT_DIR} none bind 0 0" >> "/etc/fstab" || exit 1;
 pushd "${LAPAS_GUESTROOT_DIR}";
 	logSubsection "Downloading Archlinux Bootstrap...";
 	wget https://ftp.fau.de/archlinux/iso/latest/archlinux-bootstrap-x86_64.tar.zst || exit 1;
 	logSubsection "Preparing Archlinux Bootstrap...";
 	runSilentUnfallible tar --zstd -x -f archlinux-bootstrap-x86_64.tar.zst --strip-components=1 --numeric-owner;
-	rm archlinux-bootstrap-x86_64.tar.gz;
+	runSilentUnfallible rm archlinux-bootstrap-x86_64.tar.zst;
 popd;
 
 logSubsection "Setting up locale and time settings"
@@ -194,15 +239,15 @@ logSubsection "Installing dependencies for minimal LAPAS Guest system"
 # installing dependencies
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" pacman -Syu --noconfirm;
 "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" pacman --noconfirm -S nano base-devel bc wget \
-	mkinitcpio mkinitcpio-nfs-utils linux-firmware nfs-utils \
+	mkinitcpio open-iscsi linux-firmware nfs-utils \
 	xorg-server sddm qt6-multimedia-ffmpeg qt6-declarative qt6-5compat qt6-svg gst-plugins-bad gst-plugins-ugly \
 	xfce4 xfce4-goodies gvfs pulseaudio pulseaudio-alsa pavucontrol \
 	firefox geany file-roller openbsd-netcat \
 	wine-staging winetricks umu-launcher vkd3d zenity autorandr \
 	lib32-mesa vulkan-icd-loader lib32-vulkan-icd-loader lib32-vulkan-virtio lib32-vulkan-intel lib32-vulkan-radeon lib32-vulkan-nouveau \
 	gnutls lib32-gnutls lib32-alsa-oss alsa-oss sdl12-compat \
-	openal lib32-libxcomposite lib32-libpulse lib32-openal lib32-openssl-1.1 lib32-freetype2 || exit 1;
-
+	openal lib32-libxcomposite lib32-libpulse lib32-openal lib32-freetype2 || exit 1;
+	
 
 
 ################################################################################################
@@ -210,6 +255,7 @@ logSection "Setting up Guest OS Network Settings..."
 ################################################################################################
 # use systemd-resolvd (enables us to use resolvectl)
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable systemd-resolved
+runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable iscsid
 echo "NTP=${LAPAS_NET_IP}" >> "${LAPAS_GUESTROOT_DIR}/etc/systemd/timesyncd.conf";
 
 
@@ -287,8 +333,6 @@ logSection "Setting up Guest OS Boot Process..."
 ################################################################################################
 runSilentUnfallible grub-mknetdir --net-directory="${LAPAS_TFTP_DIR}" --subdir=grub2;
 runSilentUnfallible mkdir -p "${LAPAS_TFTP_DIR}/grub2/themes";
-echo "${LAPAS_GUESTROOT_DIR}/boot ${LAPAS_TFTP_DIR}/boot none bind 0 0" >> "/etc/fstab" || exit 1;
-runSilentUnfallible mount -o bind "${LAPAS_GUESTROOT_DIR}/boot" "${LAPAS_TFTP_DIR}/boot";
 
 cat <<EOF >> "${LAPAS_GUESTROOT_DIR}/etc/fstab"
 ${LAPAS_NET_IP}:/homes      /mnt/homes      nfs     ${LAPAS_NFS_USER_MOUNTOPTIONS} 0 0
@@ -297,6 +341,12 @@ EOF
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable lapas-firstboot-setup;
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable lapas-filesystem;
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable lapas-api-daemon;
+
+# configure lapas api daemon authentification
+runSilentUnfallible mkdir -p "${LAPAS_GUESTROOT_DIR}/lapas";
+echo "API_PASSWORD=\"${LAPAS_PASSWORD}\"" > "${LAPAS_GUESTROOT_DIR}/lapas/lapas-api.env";
+runSilentUnfallible chmod a-rwx "${LAPAS_GUESTROOT_DIR}/lapas/lapas-api.env";
+
 
 logSubsection "Setting up UI, User & Home System"
 # configuring pam service to manage user homefolders for players
@@ -320,8 +370,11 @@ runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_
 # setup boot menu and install kernel/ramdisk
 runSilentUnfallible "${LAPAS_SCRIPTS_DIR}/updateBootmenus.sh";
 
-
-
+##############################################
+# finalize work on guest (unmount image)
+runSilentUnfallible umount "${LAPAS_GUESTROOT_DIR}/boot";
+runSilentUnfallible umount "${LAPAS_GUESTROOT_DIR}";
+runSilentUnfallible rmdir "${LAPAS_GUESTROOT_DIR}";
 
 
 
@@ -347,12 +400,9 @@ mkdir -p "${LAPAS_DNS_HOSTMAPPINGS_DIR}";
 logSubsection "Setting up NFS...";
 ################################################################################
 runSilentUnfallible mkdir -p "/srv/nfs";
-runSilentUnfallible mkdir -p "/srv/nfs/guest";
 runSilentUnfallible mkdir -p "/srv/nfs/homes";
-echo "${LAPAS_GUESTROOT_DIR} /srv/nfs/guest none bind 0 0" >> "/etc/fstab" || exit 1;
 echo "${LAPAS_USERHOMES_DIR} /srv/nfs/homes none bind 0 0" >> "/etc/fstab" || exit 1;
 runSilentUnfallible systemctl daemon-reload;
-runSilentUnfallible mount -o bind "${LAPAS_GUESTROOT_DIR}" "/srv/nfs/guest";
 runSilentUnfallible mount -o bind "${LAPAS_USERHOMES_DIR}" "/srv/nfs/homes";
 runSilentUnfallible exportfs -ra;
 runSilentUnfallible systemctl restart nfs-kernel-server;

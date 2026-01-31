@@ -1,26 +1,28 @@
 #!/bin/bash
 
 build() {
-	# Add firmware files for network card drivers that are built directly into the kernel
-	local mods firmware;
-	mapfile -t mods < <(cat "/usr/lib/modules/${KERNELVERSION}/modules.builtin" | grep "/drivers/net");
+        # Add firmware files for network card drivers that are built directly into the kernel
+        local mods firmware;
+        mapfile -t mods < <(cat "/usr/lib/modules/${KERNELVERSION}/modules.builtin" | grep "/drivers/net");
 
-	for modPath in "${mods[@]}"; do
-		modFilename=$(basename "$modPath");
-		modName=${modFilename%.ko*};
-		mapfile -t firmware < <(modinfo -k "$KERNELVERSION" "$modName" | grep -E "^firmware:\s+" | awk '{ print $2 }');
-		if (( ${#firmware[*]} )); then
-			echo -e "\tAdding ${#firmware[@]} firmware files for: $modName";
-			add_firmware "${firmware[@]}" || { echo -e "\t\tWarning: Firmware may be missing"; };
-		fi
-	done
+        for modPath in "${mods[@]}"; do
+                modFilename=$(basename "$modPath");
+                modName=${modFilename%.ko*};
+                mapfile -t firmware < <(modinfo -k "$KERNELVERSION" "$modName" | grep -E "^firmware:\s+" | awk '{ print $2 }');
+                if (( ${#firmware[*]} )); then
+                        echo -e "\tAdding ${#firmware[@]} firmware files for: $modName";
+                        add_firmware "${firmware[@]}" || { echo -e "\t\tWarning: Firmware may be missing"; };
+                fi
+        done
 
-	# Add all network card drivers built as modules and their corresponding firmware files
-	add_all_modules '/drivers/net/'
+        # Add all network card drivers built as modules and their corresponding firmware files
+        add_all_modules '/drivers/net/'
 
-	add_binary "/usr/bin/mount.nfs4" "/bin/mount.nfs4"
+        add_binary tr;
+        add_binary blockdev;
+        add_binary iscsistart;
 
-	add_runscript
+        add_runscript
 }
 
 help() {
@@ -28,3 +30,4 @@ help() {
 This installs our remountfs script.
 HELPEOF
 }
+

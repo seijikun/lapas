@@ -11,7 +11,7 @@ USER_BASE_DIR="/mnt/homeBase";
 
 # import lapas config
 . "/lapas/common.sh" || exit 1;
-. "/lapas/apiserver_root_nonce.env" || exit 1;
+. "/lapas/lapas-api.env" || exit 1;
 
 # get uid/gid of user
 LOGINUSER_UID=$(id -u "$PAM_USER");
@@ -30,7 +30,7 @@ echo "[LOGON] Login user: ${PAM_USER}, home: ${LOGINUSER_HOME}";
 
 if [ "$PAM_USER" != "$BASEUSER_NAME" ] && [ "$PAM_TYPE" == "open_session" ]; then
         echo "[LOGON] Detected normal user";
-        ROOT_NONCE="${ROOT_NONCE}" /lapas/lapas-api-client add-dns-mapping "${PAM_USER}";
+        API_PASSWORD="${API_PASSWORD}" /lapas/lapas-api-client add-dns-mapping "${PAM_USER}";
 
         USER_MOUNT_DIR="${USER_MOUNT_BASE}/${PAM_USER}";
         USER_PERSISTENT_MOUNT_DIR="${USER_MOUNT_DIR}/overlay"; # contains mounted user ext4 image

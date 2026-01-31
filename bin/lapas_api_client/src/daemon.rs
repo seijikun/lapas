@@ -65,7 +65,7 @@ async fn handle_local_auth_client(auth: ApiAuth, user_cache: UserCacheState, mut
         LapasProtocol::ShadowGetList { auth: is_auth } => {
             println!("AuthServ: Got Shadow request");
             match (is_auth, auth) {
-                (ApiAuth::RootNonce(nonce_is), ApiAuth::RootNonce(nonce_should)) if nonce_is == nonce_should => {
+                (ApiAuth::Password(auth_is), ApiAuth::Password(auth_should)) if auth_is == auth_should => {
                     let user_list = user_cache.get().await;
                     LapasProtocol::ShadowGetListResponse { result: Ok(user_list) }.encode(&mut stream).await?;
                 },

@@ -5,7 +5,6 @@ mod user_service;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::ops::DerefMut;
-use std::os::unix::prelude::PermissionsExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -14,8 +13,6 @@ use clap::Parser;
 use dns_service::DnsService;
 use lapas_api_proto::{ApiAuth, LapasProtocol, LapasUserPasswd, LapasUserShadow, ProtoSerde};
 use notification_service::NotificationService;
-use rand::distr::Alphanumeric;
-use rand::Rng;
 use sha2::{Digest, Sha512};
 use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -68,7 +65,6 @@ impl ClientContext {
 
 struct State {
     config: HashMap<String, String>,
-    root_nonce: String,
     user_service: Mutex<UserService>,
     dns_service: Mutex<DnsService>,
     notification_service: NotificationService,
@@ -101,10 +97,6 @@ impl State {
             .get("LAPAS_USERHOMES_DIR")
             .expect("Config File missing parameter LAPAS_USERHOMES_DIR")
             .clone();
-        let guest_root_dir = config
-            .get("LAPAS_GUESTROOT_DIR")
-            .expect("Config File missing parameter LAPAS_GUESTROOT_DIR")
-            .clone();
         let dns_domain = config
             .get("LAPAS_NET_DOMAIN")
             .expect("Config File missing parameter LAPAS_NET_DOMAIN")
@@ -114,31 +106,8 @@ impl State {
             .expect("Config File missing parameter LAPAS_DNS_HOSTMAPPINGS_DIR")
             .clone();
 
-        // generate random root nonce that can be used for root logins.
-        // This root_nonce will then be written to the guest's lapas directory (only root-accessible)
-        let root_nonce: String = rand::rng()
-            .sample_iter(&Alphanumeric)
-            .take(128)
-            .map(char::from)
-            .collect();
-        let mut root_nonce_file = PathBuf::from(guest_root_dir);
-        root_nonce_file.push("lapas");
-        root_nonce_file.push("apiserver_root_nonce.env");
-        let mut root_nonce_file = File::create(root_nonce_file).await?;
-        root_nonce_file
-            .write_all(format!("ROOT_NONCE=\"{}\"\n", root_nonce).as_bytes())
-            .await?;
-        root_nonce_file.flush().await?;
-        let mut root_nonce_file_permissions = root_nonce_file.metadata().await?.permissions();
-        // only root accessible
-        root_nonce_file_permissions.set_mode(0);
-        root_nonce_file
-            .set_permissions(root_nonce_file_permissions)
-            .await?;
-
         Ok(State {
             config,
-            root_nonce,
             user_service: Mutex::new(UserService::new(homes_dir).await?),
             dns_service: Mutex::new(DnsService::new(dns_domain, dns_hostmap_dir).await?),
             notification_service: NotificationService::new(),
@@ -158,7 +127,6 @@ impl State {
 
     pub fn check_auth(&self, auth: ApiAuth) -> bool {
         match auth {
-            ApiAuth::RootNonce(root_nonce) => root_nonce == self.root_nonce,
             ApiAuth::Password(api_password) => {
                 let salted_password = format!("{}{}", self.password_salt(), api_password); // prepend salt
                 let mut hasher = Sha512::new();

@@ -1,19 +1,42 @@
 run_hook() {
-	rootfstype="overlay"
-	mount_handler="lapas_mount_handler"
+        local machine_id=$(cat /sys/class/net/*/address | head -n1 | tr -d ':');
+        local initiator_iqn="iqn.1970-01.lapas.guest:guest${machine_id}";
+        echo "[lapas] Machine identifier: ${machine_id}";
+        echo "[lapas] Initiator IQN: ${initiator_iqn}";
+
+        local target_iqn="@@LAPAS_GUESTIMG_IQN@@";
+        echo "[lapas] Connecting to ISCSI target: ${target_iqn}..."
+        iscsistart -i "${initiator_iqn}" -t "${target_iqn}" -g 1 -a @@LAPAS_NET_IP@@
+        root="/dev/disk/by-path/ip-@@LAPAS_NET_IP@@:3260-iscsi-${target_iqn}-lun-0"
+        echo "[lapas] ISCSI target Connected"
+
+        if [ "${lapas_mode}" == "admin" ]; then
+                echo "[lapas:admin] Performing fsck on root filesystem";
+                fsck_device "$root" || exit $?;
+                mount_handler="lapas_mount_admin";
+        else
+                mount_handler="lapas_mount_user";
+        fi
+        echo $mac;
 }
 
-lapas_mount_handler() {
-	if [ "${lapas_mode}" == "admin" ]; then
-		mount.nfs4 @@LAPAS_NET_IP@@:/guest "$1" -o rw,vers=@@LAPAS_NFS_VERSION@@
-	else
-		mkdir /dev/nfs
-		mkdir /tmproot
-		mount -t tmpfs none /tmproot
-		mkdir /tmproot/upper
-		mkdir /tmproot/work
-		touch /tmproot/upper/.lapasUser
-		mount.nfs4 @@LAPAS_NET_IP@@:/guest /dev/nfs -o ro,@@LAPAS_NFS_USER_MOUNTOPTIONS@@
-		mount -t overlay overlay -o lowerdir=/dev/nfs,upperdir=/tmproot/upper,workdir=/tmproot/work "$1"
-	fi
+lapas_mount_admin() {
+        echo "[lapas:admin] Mounting root filesystem read-write";
+        mount "$root" "$1"
+}
+
+lapas_mount_user() {
+        echo "[lapas:user] Switching iscsi root blockdevice to readonly";
+        blockdev --setro "$root";
+
+        mkdir /dev/iscsiroot
+        mkdir /tmproot
+        mount -t tmpfs none /tmproot
+        mkdir /tmproot/upper
+        mkdir /tmproot/work
+        touch /tmproot/upper/.lapasUser
+
+        echo "[lapas:user] Mounting root filesystem read-only";
+        mount "$root" /dev/iscsiroot -o ro || exit $?;
+        mount -t overlay overlay -o lowerdir=/dev/iscsiroot,upperdir=/tmproot/upper,workdir=/tmproot/work "$1" || exit $?;
 }
