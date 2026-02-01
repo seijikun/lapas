@@ -39,6 +39,7 @@ Categories=Game
 """);
 DEFAULT_BOTTLE_SETTINGS = string.Template("""[bottle]
 proton = "${PROTON}"
+launcher_env = {}
 """);
 DEFAULT_SHORTCUT = """[shortcut]
 name = "Name of Desktop Launcher"
@@ -157,7 +158,7 @@ class UmuRepoBottle:
 		return UmuRepoBottle(baseFolder);
 	def getSettings(self):
 		with open(self.settingsPath, "rb") as f:
-			return tomllib.load(f)['bottle'];
+			return tomllib.load(f).get('bottle', {});
 	def getShortcuts(self):
 		shortcuts = glob.glob(self.baseFolder + "/*.shortcut");
 		return [UmuRepoBottleShortcut(path) for path in shortcuts];
@@ -243,12 +244,14 @@ class UmuRepo:
 			"WINEPREFIX": bottle.prefixPath,
 			"GAMEID": "0",
 			"STORE": "none",
-			"UMU_NO_RUNTIME": "1",
 			"UMU_RUNTIME_UPDATE": "0",
 			"PROTONFIXES_DISABLE": "1",
 			"PROTONPATH": self.getProtonPath(bottleSettings['proton']),
 			"PROTON_USE_WINED3D": "0" if umgr.gpuinfo.hasVulkanGpu() else "1",
 		};
+		# override launcher environment vars from bottle config
+		umuEnv |= bottle.getSettings().get('launcher_env', {});
+
 		binary = self.__getBinaryPath(bottle, shortcutSettings);
 		workingDirectoryPath = os.path.join(bottle.prefixPath, shortcutSettings['workingDirectory']);
 		process = subprocess.Popen(
@@ -395,6 +398,11 @@ exec_parser.add_argument("bottle", help="Bottle to use");
 exec_parser.add_argument("binary", help="Binary to execute");
 # Update desktop files command
 subparsers.add_parser("updateDesktopFiles", help = "Create .desktop starter files for all bottle shortcuts");
+
+# No argument given, print full help and exit
+if len(sys.argv) == 1:
+	parser.print_help();
+	sys.exit(0);
 
 args = parser.parse_args();
 
