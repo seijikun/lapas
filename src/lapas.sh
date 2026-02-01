@@ -240,9 +240,9 @@ logSubsection "Installing dependencies for minimal LAPAS Guest system"
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" pacman -Syu --noconfirm;
 "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" pacman --noconfirm -S nano base-devel bc wget \
 	mkinitcpio open-iscsi linux-firmware nfs-utils \
-	xorg-server sddm qt6-multimedia-ffmpeg qt6-declarative qt6-5compat qt6-svg gst-plugins-bad gst-plugins-ugly \
-	xfce4 xfce4-goodies gvfs pulseaudio pulseaudio-alsa pavucontrol \
-	firefox geany file-roller openbsd-netcat \
+	xorg-server xorg-xwayland sddm qt6-multimedia-ffmpeg qt6-declarative qt6-5compat qt6-svg gst-plugins-bad gst-plugins-ugly \
+	plasma-meta plasma-x11-session gvfs pulseaudio pulseaudio-alsa pavucontrol \
+	firefox dolphin konsole kate ark openbsd-netcat \
 	wine-staging winetricks umu-launcher vkd3d zenity autorandr \
 	lib32-mesa vulkan-icd-loader lib32-vulkan-icd-loader lib32-vulkan-virtio lib32-vulkan-intel lib32-vulkan-radeon lib32-vulkan-nouveau \
 	gnutls lib32-gnutls lib32-alsa-oss alsa-oss sdl12-compat \
