@@ -242,11 +242,11 @@ runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_
 	mkinitcpio open-iscsi linux-firmware nfs-utils \
 	xorg-server xorg-xwayland sddm qt6-multimedia-ffmpeg qt6-declarative qt6-5compat qt6-svg gst-plugins-bad gst-plugins-ugly \
 	plasma-meta plasma-x11-session gvfs pulseaudio pulseaudio-alsa pavucontrol \
-	firefox dolphin konsole kate ark openbsd-netcat \
+	firefox dolphin konsole kate ark gwenview openbsd-netcat \
 	wine-staging winetricks umu-launcher vkd3d zenity autorandr \
 	lib32-mesa vulkan-icd-loader lib32-vulkan-icd-loader lib32-vulkan-virtio lib32-vulkan-intel lib32-vulkan-radeon lib32-vulkan-nouveau \
-	gnutls lib32-gnutls lib32-alsa-oss alsa-oss sdl12-compat \
-	openal lib32-libxcomposite lib32-libpulse lib32-openal lib32-freetype2 || exit 1;
+	gnutls lib32-gnutls lib32-alsa-oss alsa-oss openal sdl12-compat \
+	openal lib32-libxcomposite lib32-libpulse lib32-openal lib32-freetype2 lib32-fontconfig || exit 1;
 	
 
 
