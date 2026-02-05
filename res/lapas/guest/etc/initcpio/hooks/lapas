@@ -26,17 +26,19 @@ lapas_mount_admin() {
 }
 
 lapas_mount_user() {
+        local root_mountpoint="@@LAPAS_GUESTIMG_RO_MOUNTPOINT@@";
+        
         echo "[lapas:user] Switching iscsi root blockdevice to readonly";
         blockdev --setro "$root";
 
-        mkdir /dev/iscsiroot
-        mkdir /tmproot
-        mount -t tmpfs none /tmproot
-        mkdir /tmproot/upper
-        mkdir /tmproot/work
-        touch /tmproot/upper/.lapasUser
+        mkdir "$root_mountpoint";
+        mkdir /tmproot;
+        mount -t tmpfs none /tmproot;
+        mkdir /tmproot/upper;
+        mkdir /tmproot/work;
+        touch /tmproot/upper/.lapasUser;
 
         echo "[lapas:user] Mounting root filesystem read-only";
-        mount "$root" /dev/iscsiroot -o ro || exit $?;
-        mount -t overlay overlay -o lowerdir=/dev/iscsiroot,upperdir=/tmproot/upper,workdir=/tmproot/work "$1" || exit $?;
+        mount "$root" $root_mountpoint -o ro || exit $?;
+        mount -t overlay overlay -o lowerdir=$root_mountpoint,upperdir=/tmproot/upper,workdir=/tmproot/work "$1" || exit $?;
 }

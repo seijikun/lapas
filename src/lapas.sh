@@ -96,6 +96,8 @@ LAPAS_NET_DHCP_ADDRESSES_END=$(fqIpGetLastUsableHostaddress "$LAPAS_NET_ADDRESS"
 LAPAS_NFS_VERSION="4.2";
 LAPAS_NFS_USER_MOUNTOPTIONS="vers=${LAPAS_NFS_VERSION},noatime,nodiratime,nconnect=4";
 
+# underlay root filesystem moutpoint when booting in user(read-only) mode.
+LAPAS_GUESTIMG_RO_MOUNTPOINT="/dev/iscsiroot";
 LAPAS_GUESTIMG_PATH="${LAPAS_BASE_DIR}/guest.img";
 LAPAS_GUESTIMG_SIZE="1T";
 LAPAS_GUESTIMG_FSUUID="16d4a517-bf5d-45f3-8fd3-92f1edcb613e";
@@ -156,6 +158,7 @@ LAPAS_CONFIGURATION_OPTIONS=(
 	"LAPAS_NFS_VERSION=${LAPAS_NFS_VERSION}"
 	"LAPAS_NFS_USER_MOUNTOPTIONS=${LAPAS_NFS_USER_MOUNTOPTIONS}"
 	"LAPAS_DNS_HOSTMAPPINGS_DIR=${LAPAS_DNS_HOSTMAPPINGS_DIR}"
+	"LAPAS_GUESTIMG_RO_MOUNTPOINT"="${LAPAS_GUESTIMG_RO_MOUNTPOINT}"
 	"LAPAS_GUESTIMG_PATH"="${LAPAS_GUESTIMG_PATH}"
 	"LAPAS_GUESTIMG_SIZE"="${LAPAS_GUESTIMG_SIZE}"
 	"LAPAS_GUESTIMG_FSUUID"="${LAPAS_GUESTIMG_FSUUID}"
@@ -317,6 +320,7 @@ while true; do
 	fi
 done
 "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" bash -c "cd ${KERNEL_DIR} && make modules_install" || exit 1;
+
 
 logSubsection "Compiling and Installing bindfs...";
 #bindfs is not in arch repo, so we need to build from source

@@ -62,7 +62,7 @@ if [ "$PAM_USER" != "$BASEUSER_NAME" ] && [ "$PAM_TYPE" == "open_session" ]; the
 		assertSuccessfull chown -R $PAM_USER:lanparty "$USER_PERSISTENT_MOUNT_DIR";
 		# remove cleanup marker from user's upper dir on every mount (once per boot)
 		if [ -f "${USER_PERSISTENT_MOUNT_DIR}/upper/.keepApplied" ]; then
-				rm "${USER_PERSISTENT_MOUNT_DIR}/upper/.keepApplied";
+			rm "${USER_PERSISTENT_MOUNT_DIR}/upper/.keepApplied";
 		fi
 	fi
 	if [ ! -f "${USER_PERSISTENT_MOUNT_DIR}/upper/.keepApplied" ]; then
