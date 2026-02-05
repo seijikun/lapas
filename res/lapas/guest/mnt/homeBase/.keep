@@ -87,6 +87,8 @@ base:keep user:delete .umuManager
 base:keep user:delete .local/share/umu
 base:keep user:delete .local/share/Steam
 base:keep user:delete .steam
+# temporary pressure-vessel environments
+base:delete user:delete .local/share/umu/steamrt*/var/tmp-*
 # user specific files
 base:delete user:keep .umuManager/bottles/*/prefix/user.reg
 base:delete user:keep .umuManager/bottles/*/prefix/userdef.reg
