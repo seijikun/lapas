@@ -1,18 +1,6 @@
 import os;
-import string;
 import shutil;
 from enum import Enum
-
-
-def applyTemplate(srcPath, dstPath, argMap):
-	with open(srcPath, 'r') as file:
-		tplData = file.read();
-		data = string.Template(tplData).substitute(argMap);
-		# make sure dstpath exists
-		dstFolderPath = os.path.dirname(dstPath);
-		os.makedirs(dstFolderPath, exist_ok = True);
-		with open(dstPath, 'w') as file:
-			file.write(data);
 
 
 class SymlinkStrategy(Enum):
@@ -30,19 +18,28 @@ def setupSymlink(ctxArgs, srcPath, relDstPath, strategy = SymlinkStrategy.Move):
 	This sets up a symlink relationship between a srcPath (somewhere in the wineprefix)
 	and the dstPath (to store the actual data in the userdata folder).
 	If dstPath already exists, this is a No-Op.
+	If the current user is the base-user, this is a No-Op.
 	Arguments:
 	- ctxArgs is the entire arguments context of a umgrHook.
 	- srcPath: Path inside the wineprefix whose user-specific content should symlinked out for storage
 	- relDstPath: Destination path (relative to the userdata folder) where the data should be symlinked to.
 	- strategy: Setup strategy to use
+
+	Returns:
+	- False, if nothing was done.
+	- True, if the link destination did not yet exist and a link was thus created.
 	"""
-	dstPath = os.path.join(ctxArgs.USERDATA_PATH, relDstPath);
+	username = os.environ['USER'];
+	if username == 'lapas':
+		return False;
+
+	dstPath = os.path.join(ctxArgs.USERDATA_PATH, relDstPath)
 
 	if not os.path.exists(srcPath):
 		raise FileNotFoundError("Source path does not exist");
 	# initial setup already done - nothing to do
 	if os.path.islink(srcPath):
-		return;
+		return False;
 
 	# Ensure parent directory exists
 	os.makedirs(os.path.dirname(dstPath), exist_ok=True);
@@ -62,3 +59,4 @@ def setupSymlink(ctxArgs, srcPath, relDstPath, strategy = SymlinkStrategy.Move):
 			open(dstPath, "a").close();
 			os.remove(srcPath);
 		os.symlink(dstPath, srcPath);
+	return True;

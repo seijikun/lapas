@@ -9,7 +9,6 @@ mount "${LAPAS_GUESTIMG_PATH}" "${LAPAS_GUESTROOT_DIR}" || { echo "ERROR: Failed
 mount --bind "${LAPAS_TFTP_DIR}/boot" "${LAPAS_GUESTROOT_DIR}/boot" || { echo "ERROR: Failed to bind-mount boot."; exit 1; }
 
 export PS1_BACKUP="$PS1";
-#PROMPT_COMMAND='PS1="\e[1;37m(WithGuestFs)\e[0m \u@\h:\w\$ "' bash
 PROMPT_COMMAND='PS1="\[\e[1;37m\](WithGuestFs)\[\e[0m\] \u@\h:\w\$ "' bash
 
 umount "${LAPAS_GUESTROOT_DIR}/boot" || { echo "ERROR: Failed to unmount boot."; exit 1; }
