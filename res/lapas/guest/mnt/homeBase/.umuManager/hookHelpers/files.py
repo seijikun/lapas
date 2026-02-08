@@ -2,7 +2,7 @@ import os;
 import string;
 import tempfile;
 
-def string_replace(filepath, needle, replacement):
+def stringReplace(filepath, needle, replacement):
 	"""
 	Replace all occurrences of a string in a file, similar to:
 		sed -i 's/OLD/NEW/g' file

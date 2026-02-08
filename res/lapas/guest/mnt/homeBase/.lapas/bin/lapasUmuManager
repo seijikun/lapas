@@ -9,6 +9,7 @@ import threading;
 import subprocess;
 import umgr.zenity;
 import umgr.gpuinfo;
+import umgr.desktopentry;
 # hook system:
 import sys;
 import uuid;
@@ -28,24 +29,14 @@ from pathlib import Path
 HOME_FOLDER = os.environ['HOME'];
 USERNAME = os.environ['USER'];
 
-LAUNCHER_TEMPLATE = string.Template("""[Desktop Entry]
-Comment=${SHORTCUT_COMMENT}
-Exec=/mnt/homeBase/.lapas/bin/lapasUmuManager start ${BOTTLE_NAME} ${SHORTCUT_NAME}
-Icon=${SHORTCUT_ICON_PATH}
-Name=${SHORTCUT_DISPLAY_NAME}
-NoDisplay=false
-StartupNotify=true
-Terminal=false
-Type=Application
-Categories=Game
-""");
 DEFAULT_BOTTLE_SETTINGS = string.Template("""[bottle]
 proton = "${PROTON}"
 launcher_env = {}
 """);
 DEFAULT_SHORTCUT = """[shortcut]
-visible = true
 name = "Name of Desktop Launcher"
+visible = true
+keywords = []
 comment = "Comment shown in Desktop Launcher"
 binary = "drive_c/.../game.exe"
 workingDirectory = "drive_c/..."
@@ -366,6 +357,7 @@ def cmdExecInBottle(bottleName, binary):
 def cmdUpdateDesktopFiles():
 	print("Updating Desktop Launchers...");
 	launcherDir = os.path.join(HOME_FOLDER, '.local/share/applications');
+	os.makedirs(launcherDir, exist_ok = True);
 	for prevLauncherPath in glob.glob(os.path.join(launcherDir, "umu_*.desktop")):
 		os.remove(prevLauncherPath);
 	
@@ -375,18 +367,17 @@ def cmdUpdateDesktopFiles():
 			print(f"      - \033[1;97m{shortcut.name}\033[0m{' [hidden]' if not shortcut.isVisible() else ''}");
 			shortcutSettings = shortcut.getSettings();
 			if shortcut.isVisible():
-				launcherTplData = {
-					'BOTTLE_NAME': bottle.name,
-					'SHORTCUT_NAME': shortcut.name,
-					'SHORTCUT_DISPLAY_NAME': shortcutSettings['name'],
-					'SHORTCUT_COMMENT': shortcutSettings['comment'],
-					'SHORTCUT_ICON_PATH': shortcut.tryFindIcon(os.path.join(bottle.baseFolder, f"{shortcut.name}.ico")),
-				};
-
 				launcherPath = os.path.join(launcherDir, f'umu_{bottle.name}_{shortcut.name}.desktop');
-				launcherContent = LAUNCHER_TEMPLATE.substitute(launcherTplData);
-				with open(launcherPath, 'w') as file:
-					file.write(launcherContent);
+				umgr.desktopentry.generate(
+					execCmd = f"/mnt/homeBase/.lapas/bin/lapasUmuManager start {bottle.name} {shortcut.name}",
+					args = {
+						"Name": shortcutSettings['name'],
+						"Icon": shortcut.tryFindIcon(os.path.join(bottle.baseFolder)),
+						"Comment": shortcutSettings['comment'],
+						"Keywords": shortcutSettings.get('keywords', []),
+					},
+					path = launcherPath
+				);
 
 ####################################################################################
 
