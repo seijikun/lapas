@@ -14,12 +14,14 @@ import sys;
 import uuid;
 import types;
 import pkgutil;
-from enum import Enum
 import importlib.machinery;
 # proton runtime mgmt
 import urllib.request;
 import tarfile;
 import json;
+
+from enum import Enum
+from pathlib import Path
 ####################################################################################
 # CONSTANTS
 
@@ -42,6 +44,7 @@ proton = "${PROTON}"
 launcher_env = {}
 """);
 DEFAULT_SHORTCUT = """[shortcut]
+visible = true
 name = "Name of Desktop Launcher"
 comment = "Comment shown in Desktop Launcher"
 binary = "drive_c/.../game.exe"
@@ -123,15 +126,29 @@ class UmuRepoBottleShortcut:
 		fileName = os.path.basename(path);
 		self.name = os.path.splitext(fileName)[0];
 		self.path = path;
+		with open(self.path, "rb") as f:
+			self.settings = tomllib.load(f).get('shortcut', {});
 	def createDummy(path):
 		gameShortcut = os.path.join(path, 'game.shortcut');
 		with open(gameShortcut, 'w') as file:
 			file.write(DEFAULT_SHORTCUT);
-	def getIconPath(self):
-		return os.path.join(os.path.dirname(self.path), self.name + '.ico');
 	def getSettings(self):
-		with open(self.path, "rb") as f:
-			return tomllib.load(f)['shortcut'];
+		return self.settings;
+	def tryFindIcon(self, default = None):
+		"""
+		Try to find the icon corresponding to this shortcut.
+		The icon is identified by having the same filename as the shortcut, with one of a set of allowed extensions.
+		Icon extensions: [svg, png, xpm, tga, jpg, ico]
+		"""
+		folder = Path(self.path).parent
+		icon_exts = ["svg", "png", "xpm", "tga", "jpg", "ico"];
+		return next((p for p in (folder / f"{self.name}.{e}" for e in icon_exts) if p.is_file()), default)
+
+	def isVisible(self):
+		"""
+		Whether this shortcut should be visible (creates public shortcut .desktop file), or for maintenance use only.
+		"""
+		return self.settings.get('visible', True);
 			
 class UmuRepoBottleBuiltinShortcut:
 	def __init__(self, cmd, args):
@@ -246,6 +263,7 @@ class UmuRepo:
 			"STORE": "none",
 			"UMU_RUNTIME_UPDATE": "0",
 			"PROTONFIXES_DISABLE": "1",
+			"WINEDEBUG": "-all+warn+error",
 			"PROTONPATH": self.getProtonPath(bottleSettings['proton']),
 			"PROTON_USE_WINED3D": "0" if umgr.gpuinfo.hasVulkanGpu() else "1",
 		};
@@ -352,21 +370,23 @@ def cmdUpdateDesktopFiles():
 		os.remove(prevLauncherPath);
 	
 	for bottle in UMU_REPO.getBottles():
-		print(f'  - Bottle: {bottle.name}');
+		print(f"  - Bottle: \033[1;97m{bottle.name}\033[0m")
 		for shortcut in bottle.getShortcuts():
-			print(f'      - {shortcut.name}');
+			print(f"      - \033[1;97m{shortcut.name}\033[0m{' [hidden]' if not shortcut.isVisible() else ''}");
 			shortcutSettings = shortcut.getSettings();
-			launcherTplData = {
-				'BOTTLE_NAME': bottle.name,
-				'SHORTCUT_NAME': shortcut.name,
-				'SHORTCUT_DISPLAY_NAME': shortcutSettings['name'],
-				'SHORTCUT_COMMENT': shortcutSettings['comment'],
-				'SHORTCUT_ICON_PATH': shortcut.getIconPath(),
-			};
-			launcherPath = os.path.join(launcherDir, f'umu_{bottle.name}_{shortcut.name}.desktop');
-			launcherContent = LAUNCHER_TEMPLATE.substitute(launcherTplData);
-			with open(launcherPath, 'w') as file:
-				file.write(launcherContent);
+			if shortcut.isVisible():
+				launcherTplData = {
+					'BOTTLE_NAME': bottle.name,
+					'SHORTCUT_NAME': shortcut.name,
+					'SHORTCUT_DISPLAY_NAME': shortcutSettings['name'],
+					'SHORTCUT_COMMENT': shortcutSettings['comment'],
+					'SHORTCUT_ICON_PATH': shortcut.tryFindIcon(os.path.join(bottle.baseFolder, f"{shortcut.name}.ico")),
+				};
+
+				launcherPath = os.path.join(launcherDir, f'umu_{bottle.name}_{shortcut.name}.desktop');
+				launcherContent = LAUNCHER_TEMPLATE.substitute(launcherTplData);
+				with open(launcherPath, 'w') as file:
+					file.write(launcherContent);
 
 ####################################################################################
 
