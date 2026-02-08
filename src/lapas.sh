@@ -260,6 +260,7 @@ logSection "Setting up Guest OS Network Settings..."
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable systemd-resolved
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable iscsid
 echo "NTP=${LAPAS_NET_IP}" >> "${LAPAS_GUESTROOT_DIR}/etc/systemd/timesyncd.conf";
+runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable sshd
 
 
 ################################################################################################
