@@ -1,24 +1,28 @@
 #!/bin/bash
 
-if [ "$USER" != "root" ]; then
-        echo "You have to be logged in as root to use this. Hint: use 'su - root' instead of su root"; exit 1;
-fi
-
 # import LAPAS config
 . $(dirname "$0")/config;
+
+if [ "$USER" != "root" ]; then
+	echo "You have to be logged in as root to use this. Hint: use 'su - root' instead of su root"; exit 1;
+fi
+
+if [ ! -d "${LAPAS_GUESTROOT_DIR}" ]; then
+	echo "You have to run this script inside scripts/withGuestFs.sh"; exit 1;
+fi
 
 ##########################################################################
 
 kernelVersion="$1";
 
 if [ "$#" != "1" ]; then
-        echo "Usage: $0 <KERNEL_VERSION>"
-        exit 1;
+	echo "Usage: $0 <KERNEL_VERSION>"
+	exit 1;
 fi
 
 ##########################################################################
 
-pushd "${LAPAS_GUESTROOT_DIR}/usr/src/";
+pushd "${LAPAS_GUESTROOT_DIR}/usr/src/" || exit 1;
 
 rm "./linux-${kernelVersion}/.config";
 
@@ -32,11 +36,11 @@ rm "./linux-${kernelVersion}.tar.xz" || exit 1;
 
 # copy over config from previous version and open config editor
 if [ -n "$newestInstalledPath" ] && [ -d "$newestInstalledPath" ]; then
-        echo "Copying config file from previous version: $newestInstalledPath";
-        cp "${newestInstalledPath}/.config" "./linux-${kernelVersion}/" || exit 1;
-        "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" bash -c "cd /usr/src/linux-${kernelVersion} && make oldconfig";
+	echo "Copying config file from previous version: $newestInstalledPath";
+	cp "${newestInstalledPath}/.config" "./linux-${kernelVersion}/" || exit 1;
+	"${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" bash -c "cd /usr/src/linux-${kernelVersion} && make oldconfig";
 else
-        "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" bash -c "cd /usr/src/linux-${kernelVersion} && make menuconfig";
+	"${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" bash -c "cd /usr/src/linux-${kernelVersion} && make menuconfig";
 fi
 
 # build new kernel
