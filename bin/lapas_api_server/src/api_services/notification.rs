@@ -4,7 +4,7 @@ use lapas_api_proto::LapasProtocol;
 use tokio::{sync::{broadcast::{self, Receiver}}, time};
 use anyhow::Result;
 
-use crate::PeerTx;
+use crate::api_services::PeerTx;
 
 pub(crate) struct NotificationService {
     notifier: broadcast::Sender<LapasProtocol>
