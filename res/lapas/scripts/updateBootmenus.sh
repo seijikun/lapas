@@ -13,8 +13,9 @@ fi
 # import LAPAS config
 . $(dirname "$0")/config;
 # KERNEL-CMDLINE
-GUEST_USER_OPTIONS="ip=dhcp carrier_timeout=10 lapas_mode=user";
-GUEST_ADMIN_OPTIONS="ip=dhcp carrier_timeout=10 lapas_mode=admin";
+ISCSI_NETROOT="netroot=iscsi:${LAPAS_NET_IP}::::${LAPAS_GUESTIMG_IQN}";
+GUEST_USER_OPTIONS="ip=dhcp root=UUID=${LAPAS_GUESTIMG_FSUUID} ro ${ISCSI_NETROOT} rd.retry=45 rd.timeout=45 rd.live.overlay.overlayfs=1";
+GUEST_ADMIN_OPTIONS="ip=dhcp root=UUID=${LAPAS_GUESTIMG_FSUUID} rw ${ISCSI_NETROOT} rd.retry=45 rd.timeout=45";
 
 ################################################################################################
 # GRUB.CFG PREAMBLE
@@ -41,19 +42,21 @@ set default=0
 EOF
 
 # if there is a theme folder, setup theme
-themePath=$(find "${LAPAS_TFTP_DIR}/grub2/themes" -maxdepth 1 -type d | sed -n '2p');
-if [ -d "$themePath" ]; then
-	themeName=$(basename "$themePath");
-	echo "Using Theme: $themeName";
+if [ -d "${LAPAS_TFTP_DIR}/grub2/themes" ]; then
+	themePath=$(find "${LAPAS_TFTP_DIR}/grub2/themes" -maxdepth 1 -type d | sed -n '2p');
+	if [ -d "$themePath" ]; then
+		themeName=$(basename "$themePath");
+		echo "Using Theme: $themeName";
 
-	# Load all theme fonts
-	find "$themePath" -type f -name "*.pf2" -print0 | while read -d $'\0' fontFile; do
-		fontFileName=$(basename "$fontFile");
-		echo "loadfont \$prefix/themes/${themeName}/${fontFileName}" >> "${LAPAS_TFTP_DIR}/grub2/grub.cfg";
-	done
+		# Load all theme fonts
+		find "$themePath" -type f -name "*.pf2" -print0 | while read -d $'\0' fontFile; do
+			fontFileName=$(basename "$fontFile");
+			echo "loadfont \$prefix/themes/${themeName}/${fontFileName}" >> "${LAPAS_TFTP_DIR}/grub2/grub.cfg";
+		done
 
-	echo "set theme=\$prefix/themes/${themeName}/theme.txt" >> "${LAPAS_TFTP_DIR}/grub2/grub.cfg";
-	echo "export theme" >> "${LAPAS_TFTP_DIR}/grub2/grub.cfg";
+		echo "set theme=\$prefix/themes/${themeName}/theme.txt" >> "${LAPAS_TFTP_DIR}/grub2/grub.cfg";
+		echo "export theme" >> "${LAPAS_TFTP_DIR}/grub2/grub.cfg";
+	fi
 fi
 
 echo -e "\n### END /etc/grub.d/00_header ###\n\n" >> "${LAPAS_TFTP_DIR}/grub2/grub.cfg";
@@ -63,20 +66,11 @@ echo -e "\n### END /etc/grub.d/00_header ###\n\n" >> "${LAPAS_TFTP_DIR}/grub2/gr
 # Call this method for every kernel to add it to the newly generated boot menu
 # Usage: addKernelToBootMenu <absolutePathToGuestKernel>
 function addKernelToBootMenu() {
-	kernelDir="$1";
-	kernelName=$(basename "$kernelDir");
-	kernelVersion="${kernelName#linux-*}";
-	kernelBinPath="${kernelDir}/arch/x86_64/boot/bzImage";
-	kernelRamdiskPath="${LAPAS_GUESTROOT_DIR}/boot/ramdisk-${kernelVersion}";
+	kernelVersion="$1";
+	kernelBinPath="${LAPAS_TFTP_DIR}/boot/vmlinuz-${kernelVersion}";
+	kernelRamdiskPath="${LAPAS_TFTP_DIR}/boot/initrd-${kernelVersion}";
 	if [ ! -f "${kernelBinPath}" ]; then return 0; fi
-	cp "${kernelBinPath}" "${LAPAS_GUESTROOT_DIR}/boot/vmlinuz-${kernelVersion}";
-	echo "Adding ${kernelName} to bootmenus...";
-	if [ ! -f "$kernelRamdiskPath" ] || [ "$kernelBinPath" -nt "$kernelRamdiskPath" ] || [ "${LAPAS_GUESTROOT_DIR}/lapas/mkinitcpio.conf" -nt "$kernelRamdiskPath" ]; then
-		echo "Something changed, ramdisk recreation necessary. Updating ramdisk...";
-		pushd "${LAPAS_GUESTROOT_DIR}" || exit 1
-			./bin/arch-chroot ./ mkinitcpio -k "$kernelVersion" -c /lapas/mkinitcpio.conf -g "/boot/ramdisk-${kernelVersion}" || exit $?;
-		popd
-	fi
+	echo "Adding ${kernelVersion} to bootmenus...";
 	cat <<EOF >> "${LAPAS_TFTP_DIR}/grub2/grub.cfg"
 #############################################################################
 menuentry 'User-${kernelVersion}' {
@@ -86,22 +80,33 @@ menuentry 'User-${kernelVersion}' {
 	echo "Loading Kernel ${kernelVersion} [USER] ..."
 	linux /boot/vmlinuz-${kernelVersion} ${GUEST_USER_OPTIONS} init=/lib/systemd/systemd nouveau.config=NvGspRm=1
 	echo "Loading Ramdisk ${kernelVersion} ..."
-	initrd /boot/ramdisk-${kernelVersion}
+	initrd /boot/initrd-${kernelVersion}
 	echo "Starting ..."
 }
 menuentry 'Admin-${kernelVersion}' {
 	echo "Loading Kernel ${kernelVersion} [ADMIN] ..."
 	linux /boot/vmlinuz-${kernelVersion} ${GUEST_ADMIN_OPTIONS} init=/lib/systemd/systemd
 	echo "Loading Ramdisk ${kernelVersion} ..."
-	initrd /boot/ramdisk-${kernelVersion}
+	initrd /boot/initrd-${kernelVersion}
 	echo "Starting ..."
 }
 
 EOF
 }
 
-while read -r kernelDir; do
-	addKernelToBootMenu "$kernelDir";
-done <<< $(find "${LAPAS_GUESTROOT_DIR}/usr/src/" -type d -name "linux-*" | sort --version-sort -r);
+# copy kernel/initramfs images from guest to tftp folder
+rm -rf "${LAPAS_TFTP_DIR}/boot";
+cp -aLR "${LAPAS_GUESTROOT_DIR}/boot" "${LAPAS_TFTP_DIR}/boot" || { echo "ERROR: Failed to copy over boot folder from guest"; exit 1; }
+# copy signed shim and grub images (to be safe, in case the signing key changes)
+cp "${LAPAS_GUESTROOT_DIR}/usr/share/efi/x86_64/shim.efi" "${LAPAS_TFTP_DIR}/shim.efi";
+cp "${LAPAS_GUESTROOT_DIR}/usr/share/efi/x86_64/grub.efi" "${LAPAS_TFTP_DIR}/grub.efi";
+cp "${LAPAS_GUESTROOT_DIR}/usr/share/efi/x86_64/MokManager.efi" "${LAPAS_TFTP_DIR}/MokManager.efi";
 
-chmod a+r -R "${LAPAS_TFTP_DIR}/boot";
+while read -r kernelConfig; do
+	kernelConfigFilename=$(basename "$kernelConfig");
+	kernelVersion="${kernelConfigFilename#config-*}";
+	echo "Found kernel: ${kernelVersion}";
+	addKernelToBootMenu "${kernelVersion}";
+done <<< $(find "${LAPAS_TFTP_DIR}/boot" -name "config-*" | sort --version-sort -r);
+
+chmod a+r -R "${LAPAS_TFTP_DIR}";

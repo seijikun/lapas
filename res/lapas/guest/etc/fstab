@@ -1,0 +1,3 @@
+# Network share containing the user home overlay images
+# (sparse, ext4 formatted files - used as overlay upper)
+@@LAPAS_NET_IP@@:/homes      /mnt/homes      nfs     @@LAPAS_NFS_USER_MOUNTOPTIONS@@ 0 0

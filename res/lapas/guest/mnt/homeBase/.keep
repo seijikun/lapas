@@ -36,12 +36,11 @@
 base:delete user:keep **
 
 
-# Proper default XFCE setup for new users
+# Proper default KDE6 setup for new users
 # --------------------------------------------------------
 # Initially provided by base
-# But users can make permanent changes to them
-base:keep user:keep .config/xfce4/xfconf/xfce-perchannel-xml
-base:keep user:keep .config/xfce4/panel
+base:keep user:delete .config/PlasmaDiscoveryUpdates
+
 
 
 # Application starters (desktop files)

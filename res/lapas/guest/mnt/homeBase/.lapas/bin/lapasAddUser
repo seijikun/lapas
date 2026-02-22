@@ -37,5 +37,5 @@ errorMessage=$(/lapas/lapas-api-client --auth "$lapasPassword" add-user "${CREDS
 if [ $? != 0 ]; then
 	zenity --error --text "$errorMessage" --title "Error while adding user";
 else
-	notify-send -t 3 "Info" "User ${CREDS[0]} was created.";
+	notify-send -t 5000 "Info" "User ${CREDS[0]} was created.";
 fi

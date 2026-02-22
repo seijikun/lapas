@@ -1,4 +1,4 @@
-res/lapas/guest/mnt/homeBase/.lapas/hooks/homeBaseBeforeCleanup.sh#!/bin/bash
+#!/bin/bash
 if [ ! "$BASH_VERSION" ] ; then exec /bin/bash "$0" "$@"; fi
 SELF_PATH=$(realpath "$0");
 
@@ -7,9 +7,6 @@ SELF_PATH=$(realpath "$0");
 ##############################
 LAPAS_SUBNET_REGEX="^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\/[0-9]{1,3}$";
 MAC_REGEX="(?:[0-9A-Fa-f]{2}[:-]){5}(?:[0-9A-Fa-f]{2})";
-
-LAPAS_GUEST_KERNEL_VERSION="6.18.6"; # https://kernel.org
-LAPAS_GUEST_BINDFS_VERSION="1.18.4"; # https://bindfs.org/downloads/
 ##############################
 
 
@@ -25,7 +22,7 @@ function printHeader() {
 		░ ░    ░   ▒   ░░         ░   ▒   ░  ░  ░  
 		    ░  ░     ░  ░               ░  ░      ░
 		
-		Installer v0.99
+		Installer v2.0
 	";
 }
 
@@ -34,6 +31,7 @@ function printHeader() {
 #!import helpers/system.sh
 #!import helpers/arrays.sh
 #!import helpers/ipcalc.sh
+#!import helpers/opensuse.sh
 
 #!import ui/cli.sh
 #!import ui/dialog.sh
@@ -66,7 +64,7 @@ logInfo "Installing dependencies...";
 # mask the services we want to install because someone at Debian thought it was a good idea
 # to just start them while they are installed (:facepalm:).
 systemctl mask dnsmasq;
-runSilentUnfallible apt-get install -y dialog ethtool gdisk dosfstools openssh-server chrony pxelinux libnfs-utils grub-pc-bin grub-efi-amd64-bin grub-efi-ia32-bin binutils nfs-kernel-server targetcli-fb dnsmasq restic;
+runSilentUnfallible apt-get install -y curl jq dialog ethtool gdisk dosfstools openssh-server chrony pxelinux libnfs-utils binutils nfs-kernel-server targetcli-fb dnsmasq restic;
 systemctl unmask dnsmasq;
 
 ################################################
@@ -97,7 +95,6 @@ LAPAS_NFS_VERSION="4.2";
 LAPAS_NFS_USER_MOUNTOPTIONS="vers=${LAPAS_NFS_VERSION},noatime,nodiratime,nconnect=4";
 
 # underlay root filesystem moutpoint when booting in user(read-only) mode.
-LAPAS_GUESTIMG_RO_MOUNTPOINT="/dev/iscsiroot";
 LAPAS_GUESTIMG_PATH="${LAPAS_BASE_DIR}/guest.img";
 LAPAS_GUESTIMG_SIZE="1T";
 LAPAS_GUESTIMG_FSUUID="16d4a517-bf5d-45f3-8fd3-92f1edcb613e";
@@ -204,63 +201,20 @@ EOF
 # mount image for all following tasks
 runSilentUnfallible mkdir "${LAPAS_GUESTROOT_DIR}";
 runSilentUnfallible mount "${LAPAS_GUESTIMG_PATH}" "${LAPAS_GUESTROOT_DIR}";
-runSilentUnfallible mkdir -p "${LAPAS_TFTP_DIR}/boot" "${LAPAS_GUESTROOT_DIR}/boot";
-runSilentUnfallible mount --bind "${LAPAS_TFTP_DIR}/boot" "${LAPAS_GUESTROOT_DIR}/boot";
-
 
 
 ################################################################################################
-logSection "Setting up Guest OS (Archlinux base installation)...";
+logSection "Preparing Guest OS (openSUSE Tumbleweed base image)...";
 ################################################################################################
-# see: https://wiki.archlinux.org/title/Install_Arch_Linux_from_existing_Linux#From_a_host_running_another_Linux_distribution
 runSilentUnfallible mkdir -p "${LAPAS_GUESTROOT_DIR}";
 pushd "${LAPAS_GUESTROOT_DIR}";
-	logSubsection "Downloading Archlinux Bootstrap...";
-	wget https://ftp.fau.de/archlinux/iso/latest/archlinux-bootstrap-x86_64.tar.zst || exit 1;
-	logSubsection "Preparing Archlinux Bootstrap...";
-	runSilentUnfallible tar --zstd -x -f archlinux-bootstrap-x86_64.tar.zst --strip-components=1 --numeric-owner;
-	runSilentUnfallible rm archlinux-bootstrap-x86_64.tar.zst;
+	logSubsection "Downloading openSUSE Tumbleweed Bootstrap...";
+	OPENSUSE_IMG_NAME=$(getOpenSuseTumbleweedImgName);
+	wget https://download.opensuse.org/tumbleweed/appliances/${OPENSUSE_IMG_NAME} || exit 1;
+	logSubsection "Preparing openSUSE Tumbleweed Bootstrap...";
+	runSilentUnfallible tar -x -f ${OPENSUSE_IMG_NAME} --numeric-owner;
+	runSilentUnfallible rm ${OPENSUSE_IMG_NAME};
 popd;
-
-logSubsection "Setting up locale and time settings"
-# TODO: Ugh... debian11 does not yet have systemd-firstboot in its distro (about to change in the future, bug already fixed).
-# refactor this manual stuff to systemd-firstboot --root="<guest>" --copy
-cat /etc/locale.gen | grep -v -E "^#" | grep -E "[a-zA-Z]+" >> "${LAPAS_GUESTROOT_DIR}/etc/locale.gen";
-runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" locale-gen;
-#runSilentUnfallible cp "/etc/default/locale" "${LAPAS_GUESTROOT_DIR}/etc/default/locale";
-runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemd-firstboot --force --timezone="${LAPAS_TIMEZONE}" \
-	--root-password="${LAPAS_PASSWORD}" --setup-machine-id --hostname="guest";
-
-logSubsection "Setting up software repository"
-# setup guest by initializing software repository (enable multilib for wine)
-echo 'Server = http://ftp.fau.de/archlinux/$repo/os/$arch' >> "${LAPAS_GUESTROOT_DIR}/etc/pacman.d/mirrorlist";
-echo -e "\n[multilib]\nInclude = /etc/pacman.d/mirrorlist" >> "${LAPAS_GUESTROOT_DIR}/etc/pacman.conf";
-runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" pacman-key --init;
-runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" pacman-key --populate archlinux;
-
-logSubsection "Installing dependencies for minimal LAPAS Guest system"
-# installing dependencies
-runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" pacman -Syu --noconfirm;
-"${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" pacman --noconfirm -S nano base-devel bc wget \
-	mkinitcpio open-iscsi linux-firmware nfs-utils \
-	xorg-server xorg-xwayland sddm qt6-multimedia-ffmpeg qt6-declarative qt6-5compat qt6-svg gst-plugins-bad gst-plugins-ugly \
-	plasma-meta plasma-x11-session gvfs pulseaudio pulseaudio-alsa pavucontrol \
-	firefox dolphin konsole kate ark gwenview openbsd-netcat \
-	wine-staging winetricks umu-launcher vkd3d zenity autorandr \
-	lib32-mesa vulkan-icd-loader lib32-vulkan-icd-loader lib32-vulkan-virtio lib32-vulkan-intel lib32-vulkan-radeon lib32-vulkan-nouveau \
-	gnutls lib32-gnutls lib32-alsa-oss alsa-oss openal sdl12-compat \
-	openal lib32-libxcomposite lib32-libpulse lib32-openal lib32-freetype2 lib32-fontconfig || exit 1;
-	
-
-
-################################################################################################
-logSection "Setting up Guest OS Network Settings..."
-################################################################################################
-# use systemd-resolvd (enables us to use resolvectl)
-runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable systemd-resolved
-runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable iscsid
-echo "NTP=${LAPAS_NET_IP}" >> "${LAPAS_GUESTROOT_DIR}/etc/systemd/timesyncd.conf";
-runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable sshd
 
 
 ################################################################################################
@@ -268,8 +222,8 @@ logSection "Extracting LAPAS resources..."
 ################################################################################################
 streamBinaryPayload "${SELF_PATH}" "__PAYLOAD_LAPAS_RESOURCES__" | base64 -d | gzip -d | tar -x --no-same-owner || exit 1;
 runSilentUnfallible configureOptionsToFile "${LAPAS_SCRIPTS_DIR}/config" "${LAPAS_CONFIGURATION_OPTIONS[@]}";
+runSilentUnfallible configureFileInplace "${LAPAS_GUESTROOT_DIR}/etc/fstab" "${LAPAS_CONFIGURATION_OPTIONS[@]}";
 runSilentUnfallible configureFileInplace "${LAPAS_GUESTROOT_DIR}/etc/resolv.conf" "${LAPAS_CONFIGURATION_OPTIONS[@]}";
-runSilentUnfallible configureFileInplace "${LAPAS_GUESTROOT_DIR}/etc/initcpio/hooks/lapas" "${LAPAS_CONFIGURATION_OPTIONS[@]}";
 runSilentUnfallible configureFileInplace "${LAPAS_GUESTROOT_DIR}/etc/systemd/system/lapas-firstboot-setup.service" "${LAPAS_CONFIGURATION_OPTIONS[@]}";
 runSilentUnfallible chown -R 1000:1000 "${LAPAS_GUESTROOT_DIR}/mnt/homeBase";
 runSilentUnfallible chmod a+r "${LAPAS_GUESTROOT_DIR}/lapas/setupShell.sh";
@@ -284,100 +238,85 @@ runSilentUnfallible configureFileInplace /etc/systemd/network/20-upstream.networ
 runSilentUnfallible configureFileInplace /etc/systemd/network/30-lapas.netdev "${LAPAS_CONFIGURATION_OPTIONS[@]}";
 runSilentUnfallible configureFileInplace /etc/systemd/network/32-lapas.network "${LAPAS_CONFIGURATION_OPTIONS[@]}";
 
+logSubsection "Setting up locale and time settings"
+runSilentUnfallible systemd-firstboot --root="${LAPAS_GUESTROOT_DIR}" --reset --force --copy --setup-machine-id --root-password="${LAPAS_PASSWORD}" --hostname="guest";
+
+# Need working DNS resolution in guest, but lapas dnsmasq is not working yet,
+# so temporarily override guest's resolve.conf
+echo "nameserver 8.8.8.8" | pushFileOverride "${LAPAS_GUESTROOT_DIR}/etc/resolv.conf" || exit 1;
 
 
 ################################################################################################
-logSection "Setting up Guest OS Kernel..."
+logSection "Setting up Guest OS (installing software)"
 ################################################################################################
-logSubsection "Downloading Guest OS Kernel..."
-pushd "${LAPAS_GUESTROOT_DIR}/usr/src" || exit 1;
-	wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-${LAPAS_GUEST_KERNEL_VERSION}.tar.xz || exit 1;
-	runSilentUnfallible tar xf ./linux-${LAPAS_GUEST_KERNEL_VERSION}.tar.xz;
-	runSilentUnfallible rm ./linux-${LAPAS_GUEST_KERNEL_VERSION}.tar.xz;
-	KERNEL_DIR="/usr/src/linux-${LAPAS_GUEST_KERNEL_VERSION}";
-	streamBinaryPayload "$SELF_PATH" "__PAYLOAD_GUEST_KERNEL_CONF__" | base64 -d | gzip -d > "${LAPAS_GUESTROOT_DIR}/${KERNEL_DIR}/.config" || exit 1;
-popd || exit 1;
+logSubsection "Installing base system";
+runUnfallible "${LAPAS_GUESTROOT_DIR}/bin/suse-chroot" "${LAPAS_GUESTROOT_DIR}" zypper addlock -t package wicked-service firewalld yast2;
+runUnfallible "${LAPAS_GUESTROOT_DIR}/bin/suse-chroot" "${LAPAS_GUESTROOT_DIR}" zypper install -y -l --force-resolution \
+	branding-upstream grub2 grub2-x86_64-efi grub2-i386-pc shim dracut open-iscsi iscsiuio systemd-sysvinit \
+	kernel-default patterns-base-base systemd-resolved nfs-client;
 
-logSubsection "Configuring Guest Kernel..."
-# Use default parameters for new config options
-"${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" bash -c "cd ${KERNEL_DIR} && make olddefconfig" || exit 1;
-while true; do
-	uiYesNo "Kernel Config" "[Expert Only: If unsure, press No]\nI configured your guest kernel with my config. Do you want to make any further changes to the config before I start compiling?" resultSpawnMenuconfig;
-	if [ "$resultSpawnMenuconfig" == "no" ]; then
-		break;
-	fi
-	"${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" bash -c "cd ${KERNEL_DIR} && make menuconfig" || exit 1;
-done
-
-logSection "Compiling and Installing your kernel...";
-while true; do
-	"${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" bash -c "cd ${KERNEL_DIR} && make -j$(nproc) | tee /tmp/kernel_build.log";
-	BUILD_EXIT_CODE=$?;
-	if [ "${BUILD_EXIT_CODE}" == "0" ]; then break; fi
-	LAST_LOG_MSGS=$(tail -n30 /tmp/kernel_build.log);
-	uiYesNo "Kernel Build failed (exit code: ${BUILD_EXIT_CODE})" "Kernel build failed. This happens sometimes and a simple retry can make it work. Do you want to try again?\n\nLast log excerpt:\n${LAST_LOG_MSGS}" resultTryBuildAgain;
-	if [ "$resultTryBuildAgain" == "no" ]; then
-		exit 1;
-	fi
-done
-"${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" bash -c "cd ${KERNEL_DIR} && make modules_install" || exit 1;
-
-
-logSubsection "Compiling and Installing bindfs...";
-#bindfs is not in arch repo, so we need to build from source
-mkdir -p "${LAPAS_GUESTROOT_DIR}/lapas/bindfs";
-pushd "${LAPAS_GUESTROOT_DIR}/lapas/bindfs" || exit 1;
-	wget https://bindfs.org/downloads/bindfs-${LAPAS_GUEST_BINDFS_VERSION}.tar.gz || exit 1;
-	runSilentUnfallible tar -xpf ./bindfs-${LAPAS_GUEST_BINDFS_VERSION}.tar.gz;
-	"${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" bash -c "cd /lapas/bindfs/bindfs-${LAPAS_GUEST_BINDFS_VERSION} && ./configure && make && make install" || exit 1;
-popd || exit 1;
-
+logSubsection "Installing Software";
+runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/suse-chroot" "${LAPAS_GUESTROOT_DIR}" zypper addlock -t pattern kde_internet kde_pim kde_games kde_office kde_yast games office;
+runUnfallible "${LAPAS_GUESTROOT_DIR}/bin/suse-chroot" "${LAPAS_GUESTROOT_DIR}" zypper --non-interactive addrepo --refresh https://download.opensuse.org/repositories/games/openSUSE_Tumbleweed/games.repo;
+runUnfallible "${LAPAS_GUESTROOT_DIR}/bin/suse-chroot" "${LAPAS_GUESTROOT_DIR}" zypper --non-interactive --gpg-auto-import-keys refresh;
+runUnfallible "${LAPAS_GUESTROOT_DIR}/bin/suse-chroot" "${LAPAS_GUESTROOT_DIR}" zypper install -y -l --force-resolution \
+	patterns-kde-kde gstreamer-plugins-bad gstreamer-plugins-ugly \
+	bindfs nano autorandr zenity libnotify-tools wine-staging umu-launcher;
 
 ################################################################################################
-logSection "Setting up Guest OS Boot Process..."
+logSection "Setting up Guest OS Network Settings..."
 ################################################################################################
-runSilentUnfallible grub-mknetdir --net-directory="${LAPAS_TFTP_DIR}" --subdir=grub2;
-runSilentUnfallible mkdir -p "${LAPAS_TFTP_DIR}/grub2/themes";
+# use systemd-resolvd (enables us to use resolvectl)
+runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/suse-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl disable ModemManager;
+runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/suse-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable systemd-resolved;
+runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/suse-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable iscsid;
+echo "NTP=${LAPAS_NET_IP}" >> "${LAPAS_GUESTROOT_DIR}/etc/systemd/timesyncd.conf";
+runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/suse-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable sshd;
 
-cat <<EOF >> "${LAPAS_GUESTROOT_DIR}/etc/fstab"
-${LAPAS_NET_IP}:/homes      /mnt/homes      nfs     ${LAPAS_NFS_USER_MOUNTOPTIONS} 0 0
-EOF
-# Set keymap with init service instead, because it then also creates the x11 keymap
-runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable lapas-firstboot-setup;
-runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable lapas-filesystem;
-runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable lapas-api-daemon;
+################################################################################################
+logSection "Setting up Guest OS Services>..."
+################################################################################################
+runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/suse-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable lapas-firstboot-setup;
+runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/suse-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable lapas-filesystem;
+runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/suse-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable lapas-api-daemon;
+runSilentUnfallible mkdir -p "${LAPAS_GUESTROOT_DIR}/mnt/homes";
 
 # configure lapas api daemon authentification
 runSilentUnfallible mkdir -p "${LAPAS_GUESTROOT_DIR}/lapas";
 echo "API_PASSWORD=\"${LAPAS_PASSWORD}\"" > "${LAPAS_GUESTROOT_DIR}/lapas/lapas-api.env";
 runSilentUnfallible chmod a-rwx "${LAPAS_GUESTROOT_DIR}/lapas/lapas-api.env";
 
-
 logSubsection "Setting up UI, User & Home System"
 # configuring pam service to manage user homefolders for players
-PAM_SYSTEM_LOGIN_LAPAS_LINES="session [success=1 default=ignore]  pam_succeed_if.so  service = systemd-user quiet
-session    required   pam_exec.so	stdout /lapas/mountHome.sh";
-PATCHED_PAM_SYSTEM_LOGIN_CONTENTS=$(awk -v lapasLines="$PAM_SYSTEM_LOGIN_LAPAS_LINES" '/^session.*system-auth$/ { print lapasLines; print; next }1' "${LAPAS_GUESTROOT_DIR}/etc/pam.d/system-login") || exit 1;
-echo -n "$PATCHED_PAM_SYSTEM_LOGIN_CONTENTS" > "${LAPAS_GUESTROOT_DIR}/etc/pam.d/system-login" || exit 1;
+runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/suse-chroot" "${LAPAS_GUESTROOT_DIR}" pam-config --add --exec;
 
 ##############################################
-# configure autostart of login manager
-runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable sddm;
 # setup base user
-runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" groupadd --gid 1000 lanparty;
-runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" useradd --gid lanparty --home-dir /mnt/homeBase --create-home --uid 1000 lapas;
-"${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" bash -c "yes \"${LAPAS_PASSWORD}\" | passwd lapas" || exit 1;
+runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/suse-chroot" "${LAPAS_GUESTROOT_DIR}" groupadd --gid 1000 lanparty;
+runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/suse-chroot" "${LAPAS_GUESTROOT_DIR}" useradd --gid lanparty --home-dir /mnt/homeBase --create-home --uid 1000 lapas;
+runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/suse-chroot" "${LAPAS_GUESTROOT_DIR}" "echo lapas:\"${LAPAS_PASSWORD}\" | chpasswd";
 # setup lapas user management
-runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" install -m 0644 /libnss_lapas.so.2 /lib;
+runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/suse-chroot" "${LAPAS_GUESTROOT_DIR}" install -m 0644 /libnss_lapas.so.2 /usr/lib64;
 rm "${LAPAS_GUESTROOT_DIR}/libnss_lapas.so.2";
-runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/arch-chroot" "${LAPAS_GUESTROOT_DIR}" /sbin/ldconfig -n /lib /usr/lib;
+runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/suse-chroot" "${LAPAS_GUESTROOT_DIR}" /sbin/ldconfig -n /lib /usr/lib;
+
+
+################################################################################################
+logSection "Setting up Guest OS Boot Process";
+################################################################################################
+# use openSUSE's signed grub, because the kernel's signature has to match the grub's signature.
+# We setup grub2 inside the guest once, then move that out and don't touch it anymore.
+runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/suse-chroot" "${LAPAS_GUESTROOT_DIR}" grub2-mknetdir --net-directory /boot --subdir=grub2;
+runSilentUnfallible mv "${LAPAS_GUESTROOT_DIR}/boot/grub2" "${LAPAS_TFTP_DIR}/";
+runSilentUnfallible ln -s -r "${LAPAS_TFTP_DIR}/grub2/grub.cfg" "${LAPAS_TFTP_DIR}/grub.cfg";
 
 # setup boot menu and install kernel/ramdisk
+runSilentUnfallible cp -aLR "${LAPAS_GUESTROOT_DIR}/boot" "${LAPAS_TFTP_DIR}/boot";
 runSilentUnfallible "${LAPAS_SCRIPTS_DIR}/updateBootmenus.sh";
 
 ##############################################
 # finalize work on guest (unmount image)
-runSilentUnfallible umount "${LAPAS_GUESTROOT_DIR}/boot";
+popFileOverride "${LAPAS_GUESTROOT_DIR}/etc/resolv.conf" || exit 1;
 runSilentUnfallible umount "${LAPAS_GUESTROOT_DIR}";
 runSilentUnfallible rmdir "${LAPAS_GUESTROOT_DIR}";
 
@@ -518,6 +457,3 @@ __PAYLOAD_LAPAS_RESOURCES__
 __PAYLOAD_SERVER_RESOURCES__
 #!binaryPayloadFrom cd ../res/server && tar -cf - ./ | gzip -9 | base64 -w 0
 __PAYLOAD_SERVER_RESOURCES__
-__PAYLOAD_GUEST_KERNEL_CONF__
-#!binaryPayloadFrom cat ../res/kernel/.config | gzip -9 | base64 -w 0
-__PAYLOAD_GUEST_KERNEL_CONF__

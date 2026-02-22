@@ -1,0 +1,46 @@
+#!/bin/bash
+
+umount_retry() {
+    local target="$1";
+    for i in {0..30}; do
+        if umount "$target" 2>/dev/null; then
+            return 0;
+        fi
+        sleep 1;
+    done
+    echo "Failed to unmount $target after 30 seconds.";
+    return 1;
+}
+
+
+
+
+CHROOT_DIR="$1"
+shift;
+
+mount --bind /dev  "${CHROOT_DIR}/dev"  || exit 1;
+mount --bind /proc "${CHROOT_DIR}/proc" || exit 1;
+mount --bind /sys  "${CHROOT_DIR}/sys"  || exit 1;
+mount --bind /run  "${CHROOT_DIR}/run"  || exit 1;
+
+pushd "${CHROOT_DIR}" > /dev/null;
+
+# Either run interactively, or run the chosen command inside the chroot
+if [[ $# -gt 0 ]]; then
+    # Command to execute was given as parameter, run that
+    chroot "${CHROOT_DIR}" /bin/bash -c "$*";
+    RETVAL=$?;
+else
+    # No command given, run interactive shell
+    chroot "${CHROOT_DIR}" /bin/bash;
+    RETVAL=$?;
+fi
+
+popd > /dev/null;
+
+umount_retry "${CHROOT_DIR}/run"  || exit 1;
+umount_retry "${CHROOT_DIR}/sys"  || exit 1;
+umount_retry "${CHROOT_DIR}/proc" || exit 1;
+umount_retry "${CHROOT_DIR}/dev"  || exit 1;
+
+exit $RETVAL;
