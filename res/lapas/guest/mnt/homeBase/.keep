@@ -40,7 +40,7 @@ base:delete user:keep **
 # --------------------------------------------------------
 # Initially provided by base
 base:keep user:delete .config/PlasmaDiscoveryUpdates
-
+base:keep user:delete .config/powerdevilrc
 
 
 # Application starters (desktop files)
