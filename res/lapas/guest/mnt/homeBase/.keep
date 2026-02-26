@@ -39,8 +39,8 @@ base:delete user:keep **
 # Proper default KDE6 setup for new users
 # --------------------------------------------------------
 # Initially provided by base
-base:keep user:delete .config/PlasmaDiscoveryUpdates
-base:keep user:delete .config/powerdevilrc
+base:keep user:keep .local/share/dolphin/view_properties/global
+base:keep user:keep .local/share/kxmlgui5/dolphin
 
 
 # Application starters (desktop files)

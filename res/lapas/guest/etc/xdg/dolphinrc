@@ -1,0 +1,18 @@
+[CompactMode]
+PreviewSize=16
+
+[General]
+EditableUrl=true
+GlobalViewProps=false
+RememberOpenedTabs=false
+ShowFullPath=true
+ShowFullPathInTitlebar=true
+ShowStatusBar=FullWidth
+ShowZoomSlider=true
+
+[KFileDialog Settings]
+Places Icons Auto-resize=false
+Places Icons Static Size=22
+
+[PreviewSettings]
+Plugins=
