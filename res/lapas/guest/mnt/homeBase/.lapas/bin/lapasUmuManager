@@ -349,9 +349,9 @@ def cmdWinetricksInBottle(bottleName, verb):
 	shortcut = UmuRepoBottleBuiltinShortcut("winetricks", [verb]);
 	UMU_REPO.startBottleShortcut(bottle, shortcut);
 
-def cmdExecInBottle(bottleName, binary):
+def cmdExecInBottle(bottleName, binary, args):
 	bottle = UMU_REPO.getBottle(bottleName);
-	shortcut = UmuRepoBottleBuiltinShortcut(binary, []);
+	shortcut = UmuRepoBottleBuiltinShortcut(os.path.abspath(binary), args);
 	UMU_REPO.startBottleShortcut(bottle, shortcut);
 
 def cmdUpdateDesktopFiles():
@@ -407,6 +407,7 @@ winetricksParser.add_argument("verb", help="winetricks verb to apply");
 exec_parser = subparsers.add_parser("exec", help = "Start the given executable in the prefix of the selected bottle");
 exec_parser.add_argument("bottle", help="Bottle to use");
 exec_parser.add_argument("binary", help="Binary to execute");
+exec_parser.add_argument("args", nargs=argparse.REMAINDER, help="Arguments passed to the binary")
 # Update desktop files command
 subparsers.add_parser("updateDesktopFiles", help = "Create .desktop starter files for all bottle shortcuts");
 
@@ -431,6 +432,6 @@ elif args.command == "winecfg":
 elif args.command == "winetricks":
 	cmdWinetricksInBottle(args.bottle, args.verb);
 elif args.command == "exec":
-	cmdExecInBottle(args.bottle, args.binary);
+	cmdExecInBottle(args.bottle, args.binary, args.args);
 elif args.command == "updateDesktopFiles":
 	cmdUpdateDesktopFiles();
