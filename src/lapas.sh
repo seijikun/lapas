@@ -308,7 +308,9 @@ logSection "Setting up Guest OS Boot Process";
 # We setup grub2 inside the guest once, then move that out and don't touch it anymore.
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/suse-chroot" "${LAPAS_GUESTROOT_DIR}" grub2-mknetdir --net-directory /boot --subdir=grub2;
 runSilentUnfallible mv "${LAPAS_GUESTROOT_DIR}/boot/grub2" "${LAPAS_TFTP_DIR}/";
+runSilentUnfallible mkdir -p "${LAPAS_TFTP_DIR}/grub2/themes";
 runSilentUnfallible ln -s -r "${LAPAS_TFTP_DIR}/grub2/grub.cfg" "${LAPAS_TFTP_DIR}/grub.cfg";
+runSilentUnfallible ln -s -r "${LAPAS_TFTP_DIR}/grub2/themes" "${LAPAS_TFTP_DIR}/themes";
 
 # setup boot menu and install kernel/ramdisk
 runSilentUnfallible cp -aLR "${LAPAS_GUESTROOT_DIR}/boot" "${LAPAS_TFTP_DIR}/boot";
