@@ -260,7 +260,11 @@ runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/suse-chroot" "${LAPAS_GUESTROOT_
 runUnfallible "${LAPAS_GUESTROOT_DIR}/bin/suse-chroot" "${LAPAS_GUESTROOT_DIR}" zypper --non-interactive addrepo --refresh https://download.opensuse.org/repositories/games/openSUSE_Tumbleweed/games.repo;
 runUnfallible "${LAPAS_GUESTROOT_DIR}/bin/suse-chroot" "${LAPAS_GUESTROOT_DIR}" zypper --non-interactive --gpg-auto-import-keys refresh;
 runUnfallible "${LAPAS_GUESTROOT_DIR}/bin/suse-chroot" "${LAPAS_GUESTROOT_DIR}" zypper install -y -l --force-resolution \
-	patterns-kde-kde gstreamer-plugins-bad gstreamer-plugins-ugly \
+	patterns-kde-kde gstreamer-plugins-bad gstreamer-plugins-ugly gstreamer-plugins-vaapi \
+	libvulkan_radeon libvulkan_radeon-32bit xf86-video-amdgpu xf86-video-r128 ucode-amd \
+	libvulkan_intel libvulkan_intel-32bit xf86-video-intel ucode-intel \
+	libvulkan_nouveau libvulkan_nouveau-32bit xf86-video-nouveau \
+	xf86-video-qxl \
 	bindfs nano autorandr zenity libnotify-tools wine-staging umu-launcher;
 
 ################################################################################################
