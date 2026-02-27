@@ -1,3 +1,9 @@
 [AC][SuspendAndShutdown]
 AutoSuspendAction=0
 LidAction=32
+
+[Battery][SuspendAndShutdown]
+AutoSuspendAction=0
+
+[LowBattery][SuspendAndShutdown]
+AutoSuspendAction=8
