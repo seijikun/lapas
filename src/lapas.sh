@@ -252,7 +252,7 @@ logSection "Setting up Guest OS (installing software)"
 logSubsection "Installing base system";
 runUnfallible "${LAPAS_GUESTROOT_DIR}/bin/suse-chroot" "${LAPAS_GUESTROOT_DIR}" zypper addlock -t package wicked-service firewalld yast2;
 runUnfallible "${LAPAS_GUESTROOT_DIR}/bin/suse-chroot" "${LAPAS_GUESTROOT_DIR}" zypper install -y -l --force-resolution \
-	branding-upstream grub2 grub2-x86_64-efi grub2-i386-pc shim dracut open-iscsi iscsiuio systemd-sysvinit \
+	branding-upstream grub2 grub2-x86_64-efi grub2-i386-pc shim dracut open-iscsi iscsiuio \
 	kernel-default patterns-base-base systemd-resolved nfs-client;
 
 logSubsection "Installing Software";
@@ -270,8 +270,10 @@ runUnfallible "${LAPAS_GUESTROOT_DIR}/bin/suse-chroot" "${LAPAS_GUESTROOT_DIR}" 
 ################################################################################################
 logSection "Setting up Guest OS Network Settings..."
 ################################################################################################
-# use systemd-resolvd (enables us to use resolvectl)
+# NetworkManager takes over from dracut and maintains the DHCP lease
+# We use systemd-resolvd (enables us to use resolvectl)
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/suse-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl disable ModemManager;
+runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/suse-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable NetworkManager;
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/suse-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable systemd-resolved;
 runSilentUnfallible "${LAPAS_GUESTROOT_DIR}/bin/suse-chroot" "${LAPAS_GUESTROOT_DIR}" systemctl enable iscsid;
 echo "NTP=${LAPAS_NET_IP}" >> "${LAPAS_GUESTROOT_DIR}/etc/systemd/timesyncd.conf";
